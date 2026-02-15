@@ -327,6 +327,48 @@ class SimService:
             return [self._goalie_to_dict(p) for p in self.simulator.get_goalie_stats(team_name=team)]
         return [self._goalie_to_dict(p) for p in self.simulator.get_goalie_stats()]
 
+    def _current_career_row(self, player: Player) -> dict[str, Any]:
+        return {
+            "season": self.simulator.season_number,
+            "team": player.team_name,
+            "age": player.age,
+            "position": player.position,
+            "gp": player.games_played,
+            "g": player.goals,
+            "a": player.assists,
+            "p": player.points,
+            "injuries": player.injuries,
+            "games_missed": player.games_missed_injury,
+            "goalie_gp": player.goalie_games,
+            "goalie_w": player.goalie_wins,
+            "goalie_l": player.goalie_losses,
+            "goalie_otl": player.goalie_ot_losses,
+            "gaa": round(player.gaa, 2),
+            "sv_pct": round(player.save_pct, 3),
+            "is_current": True,
+        }
+
+    def player_career(self, team_name: str, player_name: str) -> dict[str, Any]:
+        team = self.simulator.get_team(team_name)
+        if team is None:
+            team = next((t for t in self.simulator.teams if t.name.lower() == team_name.lower()), None)
+        if team is None:
+            raise HTTPException(status_code=404, detail="Team not found")
+        player = next((p for p in team.roster if p.name == player_name), None)
+        if player is None:
+            raise HTTPException(status_code=404, detail="Player not found")
+
+        history_rows = [row for row in player.career_seasons if isinstance(row, dict)]
+        return {
+            "player": {
+                "team": player.team_name,
+                "name": player.name,
+                "age": player.age,
+                "position": player.position,
+            },
+            "career": [self._current_career_row(player), *history_rows],
+        }
+
     def playoff_data(self) -> dict[str, Any]:
         if isinstance(self.simulator.pending_playoffs, dict) and self.simulator.pending_playoffs:
             return {
@@ -824,6 +866,12 @@ def players(scope: str = "league", team: str | None = None) -> list[dict[str, An
 def goalies(scope: str = "league", team: str | None = None) -> list[dict[str, Any]]:
     with service._lock:
         return service.goalies(scope=scope.lower(), team=team)
+
+
+@app.get("/api/player-career")
+def player_career(team: str, name: str) -> dict[str, Any]:
+    with service._lock:
+        return service.player_career(team_name=team, player_name=name)
 
 
 @app.get("/api/playoffs")

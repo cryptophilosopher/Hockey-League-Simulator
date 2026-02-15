@@ -84,6 +84,36 @@ type GoalieRow = {
   sv_pct: number;
 };
 
+type CareerRow = {
+  season: number | string;
+  team: string;
+  age: number;
+  position: string;
+  gp: number;
+  g: number;
+  a: number;
+  p: number;
+  injuries: number;
+  games_missed: number;
+  goalie_gp: number;
+  goalie_w: number;
+  goalie_l: number;
+  goalie_otl: number;
+  gaa: number;
+  sv_pct: number;
+  is_current?: boolean;
+};
+
+type PlayerCareerPayload = {
+  player: {
+    team: string;
+    name: string;
+    age: number;
+    position: string;
+  };
+  career: CareerRow[];
+};
+
 type PlayoffPayload = {
   source: string;
   revealed_days?: number;
@@ -231,7 +261,7 @@ export default function App() {
   const [mainNav, setMainNav] = useState<MainNavKey>("standings");
   const [standingsTab, setStandingsTab] = useState<StandingsTab>("standings");
   const [meta, setMeta] = useState<Meta | null>(null);
-  const [standingsMode, setStandingsMode] = useState<"league" | "conference" | "division">("league");
+  const [standingsMode, setStandingsMode] = useState<"league" | "conference" | "division">("division");
   const [rows, setRows] = useState<StandingRow[]>([]);
   const [groupRows, setGroupRows] = useState<Record<string, StandingRow[]>>({});
   const [wildGroups, setWildGroups] = useState<Record<string, WildCardRow[]>>({});
@@ -242,6 +272,7 @@ export default function App() {
   const [homePanel, setHomePanel] = useState<HomePanel | null>(null);
   const [scoreDay, setScoreDay] = useState(0);
   const [scoreBoard, setScoreBoard] = useState<DayBoard | null>(null);
+  const [playerCareer, setPlayerCareer] = useState<PlayerCareerPayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [simBusy, setSimBusy] = useState(false);
   const [error, setError] = useState("");
@@ -257,15 +288,15 @@ export default function App() {
     return m;
   }
 
-  async function loadStandings(mode = standingsMode) {
+  async function loadStandings(mode = standingsMode, metaSnapshot: Meta | null = meta) {
     if (mode === "league") {
       const s = await fetchJson<StandingsResponse>("/standings?mode=league");
       setRows(s.rows ?? []);
       setGroupRows({});
       return;
     }
-    if (!meta) return;
-    const values = mode === "conference" ? meta.conferences : meta.divisions;
+    if (!metaSnapshot) return;
+    const values = mode === "conference" ? metaSnapshot.conferences : metaSnapshot.divisions;
     const entries = await Promise.all(
       values.map(async (value) => {
         const s = await fetchJson<StandingsResponse>(`/standings?mode=${mode}&value=${encodeURIComponent(value)}`);
@@ -317,7 +348,7 @@ export default function App() {
       const scoreTarget = scoreDay > 0 ? scoreDay : 0;
       const leaderTarget = mainNav === "team_stats" ? "team" : "league";
       await Promise.all([
-        loadStandings(standingsMode),
+        loadStandings(standingsMode, m),
         loadWildCard(),
         loadLeaders(leaderTarget),
         loadPlayoffs(),
@@ -329,6 +360,17 @@ export default function App() {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function openPlayerCareer(team: string, name: string) {
+    try {
+      const data = await fetchJson<PlayerCareerPayload>(
+        `/player-career?team=${encodeURIComponent(team)}&name=${encodeURIComponent(name)}`,
+      );
+      setPlayerCareer(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
     }
   }
 
@@ -595,10 +637,18 @@ export default function App() {
           </div>
           <div className="split">
             <div><h3>Players</h3><table><thead><tr><th>Team</th><th>Player</th><th>Pos</th><th>GP</th><th>G</th><th>A</th><th>P</th></tr></thead><tbody>
-              {players.slice(0, 40).map((p) => <tr key={`${p.team}-${p.name}`}><td>{p.team}</td><td>{p.name}</td><td>{p.position}</td><td>{p.gp}</td><td>{p.g}</td><td>{p.a}</td><td>{p.p}</td></tr>)}
+              {players.slice(0, 40).map((p) => (
+                <tr key={`${p.team}-${p.name}`} className="row-clickable" onClick={() => void openPlayerCareer(p.team, p.name)}>
+                  <td>{p.team}</td><td>{p.name}</td><td>{p.position}</td><td>{p.gp}</td><td>{p.g}</td><td>{p.a}</td><td>{p.p}</td>
+                </tr>
+              ))}
             </tbody></table></div>
             <div><h3>Goalies</h3><table><thead><tr><th>Team</th><th>Goalie</th><th>GP</th><th>W</th><th>L</th><th>OTL</th><th>GAA</th><th>SV%</th></tr></thead><tbody>
-              {goalies.slice(0, 30).map((g) => <tr key={`${g.team}-${g.name}`}><td>{g.team}</td><td>{g.name}</td><td>{g.gp}</td><td>{g.w}</td><td>{g.l}</td><td>{g.otl}</td><td>{g.gaa.toFixed(2)}</td><td>{g.sv_pct.toFixed(3)}</td></tr>)}
+              {goalies.slice(0, 30).map((g) => (
+                <tr key={`${g.team}-${g.name}`} className="row-clickable" onClick={() => void openPlayerCareer(g.team, g.name)}>
+                  <td>{g.team}</td><td>{g.name}</td><td>{g.gp}</td><td>{g.w}</td><td>{g.l}</td><td>{g.otl}</td><td>{g.gaa.toFixed(2)}</td><td>{g.sv_pct.toFixed(3)}</td>
+                </tr>
+              ))}
             </tbody></table></div>
           </div>
         </section>
@@ -611,10 +661,18 @@ export default function App() {
           </div>
           <div className="split">
             <div><h3>Skaters</h3><table><thead><tr><th>Player</th><th>Pos</th><th>GP</th><th>G</th><th>A</th><th>P</th></tr></thead><tbody>
-              {players.map((p) => <tr key={`${p.team}-${p.name}`}><td>{p.name}</td><td>{p.position}</td><td>{p.gp}</td><td>{p.g}</td><td>{p.a}</td><td>{p.p}</td></tr>)}
+              {players.map((p) => (
+                <tr key={`${p.team}-${p.name}`} className="row-clickable" onClick={() => void openPlayerCareer(p.team, p.name)}>
+                  <td>{p.name}</td><td>{p.position}</td><td>{p.gp}</td><td>{p.g}</td><td>{p.a}</td><td>{p.p}</td>
+                </tr>
+              ))}
             </tbody></table></div>
             <div><h3>Goalies</h3><table><thead><tr><th>Goalie</th><th>GP</th><th>W</th><th>L</th><th>OTL</th><th>GAA</th><th>SV%</th></tr></thead><tbody>
-              {goalies.map((g) => <tr key={`${g.team}-${g.name}`}><td>{g.name}</td><td>{g.gp}</td><td>{g.w}</td><td>{g.l}</td><td>{g.otl}</td><td>{g.gaa.toFixed(2)}</td><td>{g.sv_pct.toFixed(3)}</td></tr>)}
+              {goalies.map((g) => (
+                <tr key={`${g.team}-${g.name}`} className="row-clickable" onClick={() => void openPlayerCareer(g.team, g.name)}>
+                  <td>{g.name}</td><td>{g.gp}</td><td>{g.w}</td><td>{g.l}</td><td>{g.otl}</td><td>{g.gaa.toFixed(2)}</td><td>{g.sv_pct.toFixed(3)}</td>
+                </tr>
+              ))}
             </tbody></table></div>
           </div>
         </section>
@@ -745,6 +803,48 @@ export default function App() {
             <p>Loading home details...</p>
           )}
         </section>
+      ) : null}
+
+      {playerCareer ? (
+        <div className="modal-overlay" onClick={() => setPlayerCareer(null)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <h3>
+              {playerCareer.player.name} ({playerCareer.player.team}) Career
+            </h3>
+            <div className="modal-lines">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Season</th><th>Team</th><th>Age</th><th>Pos</th><th>GP</th><th>G</th><th>A</th><th>P</th><th>Inj</th><th>Missed</th><th>GGP</th><th>W</th><th>L</th><th>OTL</th><th>GAA</th><th>SV%</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {playerCareer.career.map((row, idx) => (
+                    <tr key={`${playerCareer.player.team}-${playerCareer.player.name}-${row.season}-${idx}`}>
+                      <td>{row.is_current ? `${row.season} (Current)` : row.season}</td>
+                      <td>{row.team}</td>
+                      <td>{row.age}</td>
+                      <td>{row.position}</td>
+                      <td>{row.gp}</td>
+                      <td>{row.g}</td>
+                      <td>{row.a}</td>
+                      <td>{row.p}</td>
+                      <td>{row.injuries}</td>
+                      <td>{row.games_missed}</td>
+                      <td>{row.goalie_gp}</td>
+                      <td>{row.goalie_w}</td>
+                      <td>{row.goalie_l}</td>
+                      <td>{row.goalie_otl}</td>
+                      <td>{Number(row.gaa ?? 0).toFixed(2)}</td>
+                      <td>{Number(row.sv_pct ?? 0).toFixed(3)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <button onClick={() => setPlayerCareer(null)}>Close</button>
+          </div>
+        </div>
       ) : null}
     </div>
   );

@@ -212,6 +212,14 @@ td:first-child {
   text-align: left;
 }
 
+.row-clickable {
+  cursor: pointer;
+}
+
+.row-clickable:hover td {
+  background: #eef4ff;
+}
+
 .team-cell {
   display: flex;
   align-items: center;
