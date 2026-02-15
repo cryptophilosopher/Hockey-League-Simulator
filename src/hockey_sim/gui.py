@@ -1025,7 +1025,8 @@ class HockeySimGUI:
         results = self.simulator.simulate_next_day(
             user_team_name=self.user_team_name,
             user_strategy=effective_strategy,
-            use_user_coach=use_user_coach_for_game,
+            use_user_lines=not use_user_coach_for_game,
+            use_user_strategy=not use_user_coach_for_game,
         )
         standings_map = {rec.team.name: rec for rec in self.simulator.get_standings()}
 

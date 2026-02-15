@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
-type MainNavKey = "home" | "scores" | "team_stats" | "league_stats" | "standings" | "franchise";
+type MainNavKey = "home" | "scores" | "team_stats" | "league_stats" | "standings" | "lines" | "franchise";
 type StandingsTab = "standings" | "wildcard" | "playoffs";
 
 type Meta = {
@@ -13,6 +13,8 @@ type Meta = {
   user_team_logo: string;
   user_strategy: string;
   use_coach: boolean;
+  override_coach_for_lines: boolean;
+  override_coach_for_strategy: boolean;
   game_mode: "gm" | "coach" | "both";
   user_coach_name: string;
   user_coach_rating: number;
@@ -70,6 +72,15 @@ type PlayerRow = {
   g: number;
   a: number;
   p: number;
+  plus_minus: number;
+  pim: number;
+  toi_g: number;
+  ppg: number;
+  ppa: number;
+  shg: number;
+  sha: number;
+  shots: number;
+  shot_pct: number;
 };
 
 type GoalieRow = {
@@ -110,6 +121,7 @@ type PlayerCareerPayload = {
     name: string;
     age: number;
     position: string;
+    draft_label?: string;
   };
   career: CareerRow[];
 };
@@ -138,6 +150,7 @@ type PlayoffPayload = {
 
 type FranchisePayload = {
   team: string;
+  cup_count?: number;
   history: Array<{
     season: number;
     gp: number;
@@ -157,6 +170,8 @@ type FranchisePayload = {
     assists: Array<{ name: string; value: number; status: string }>;
     goalie_wins: Array<{ name: string; value: number; status: string }>;
   };
+  retired?: Array<{ season: number; entry: string }>;
+  draft_picks?: Array<{ season: number; name: string; position: string; round: number; overall: number }>;
 };
 
 type AdvanceResponse = {
@@ -177,6 +192,8 @@ type DayBoard = {
   day: number;
   total_days: number;
   completed_days: number;
+  phase?: string;
+  round?: string;
   status: "played" | "scheduled" | "none";
   games: Array<{
     home: string;
@@ -191,6 +208,9 @@ type DayBoard = {
     home_goalie_sv?: string;
     away_goalie_sv?: string;
     attendance?: number;
+    arena_capacity?: number;
+    periods?: Array<{ label: string; home: number; away: number }>;
+    commentary?: string[];
     three_stars?: Array<{ label: string; summary: string }>;
   }>;
 };
@@ -198,6 +218,7 @@ type DayBoard = {
 type HomePanel = {
   team: string;
   logo_url: string;
+  cup_count?: number;
   season: number;
   day: number;
   team_summary?: {
@@ -220,13 +241,24 @@ type HomePanel = {
   control: {
     user_strategy: string;
     use_coach: boolean;
+    override_coach_for_lines: boolean;
+    override_coach_for_strategy: boolean;
     game_mode: "gm" | "coach" | "both";
   };
   special_teams?: {
     pp_pct: number;
     pk_pct: number;
   };
+  fan_sentiment?: {
+    score: number;
+    mood: string;
+    trend: string;
+    summary: string;
+  };
   latest_game_day: number | null;
+  upcoming_game_day?: number | null;
+  upcoming_phase?: string | null;
+  upcoming_round?: string | null;
   latest_game: {
     home: string;
     away: string;
@@ -239,8 +271,114 @@ type HomePanel = {
     away_goalie: string;
     home_goalie_sv: string;
     away_goalie_sv: string;
+    attendance?: number;
+    arena_capacity?: number;
+    game_day?: number;
+    periods?: Array<{ label: string; home: number; away: number }>;
+    commentary?: string[];
     three_stars: Array<{ label: string; summary: string }>;
   } | null;
+  latest_day_games?: Array<{
+    home: string;
+    away: string;
+    home_goals: number;
+    away_goals: number;
+    overtime: boolean;
+    home_record: string;
+    away_record: string;
+    home_goalie: string;
+    away_goalie: string;
+    home_goalie_sv: string;
+    away_goalie_sv: string;
+    attendance?: number;
+    arena_capacity?: number;
+    game_day?: number;
+    periods?: Array<{ label: string; home: number; away: number }>;
+    commentary?: string[];
+    three_stars: Array<{ label: string; summary: string }>;
+  }>;
+  recent_team_games?: Array<{
+    home: string;
+    away: string;
+    home_goals: number;
+    away_goals: number;
+    overtime: boolean;
+    home_record: string;
+    away_record: string;
+    home_goalie: string;
+    away_goalie: string;
+    home_goalie_sv: string;
+    away_goalie_sv: string;
+    attendance?: number;
+    arena_capacity?: number;
+    game_day?: number;
+    periods?: Array<{ label: string; home: number; away: number }>;
+    commentary?: string[];
+    three_stars?: Array<{ label: string; summary: string }>;
+  }>;
+  upcoming_game?: {
+    home: string;
+    away: string;
+    game_number?: number;
+  } | null;
+  playoffs?: {
+    active: boolean;
+    day?: number;
+    total_days?: number;
+    latest_team_game_day?: number | null;
+    latest_team_game?: {
+      home: string;
+      away: string;
+      home_goals: number;
+      away_goals: number;
+      overtime: boolean;
+      periods?: Array<{ label: string; home: number; away: number }>;
+      commentary?: string[];
+      round?: string;
+      game_number?: number;
+      winner?: string;
+      home_record?: string;
+      away_record?: string;
+      home_goalie?: string;
+      away_goalie?: string;
+      home_goalie_sv?: string;
+      away_goalie_sv?: string;
+      attendance?: number;
+      three_stars?: Array<{ label: string; summary: string }>;
+    } | null;
+  };
+};
+
+type CoachCandidate = {
+  name: string;
+  rating: number;
+  style: string;
+  offense: number;
+  defense: number;
+  goalie_dev: number;
+  w: number;
+  l: number;
+  otl: number;
+  cups: number;
+  source: string;
+};
+
+type LinesPayload = {
+  team: string;
+  coach: { name: string; rating: number; style: string };
+  override_coach_for_lines: boolean;
+  position_penalty: number;
+  assignments: Record<string, string>;
+  units: Array<{
+    unit: string;
+    LW: { name: string; pos: string; out_of_position?: boolean } | null;
+    C: { name: string; pos: string; out_of_position?: boolean } | null;
+    RW: { name: string; pos: string; out_of_position?: boolean } | null;
+    LD: { name: string; pos: string; out_of_position?: boolean } | null;
+    RD: { name: string; pos: string; out_of_position?: boolean } | null;
+    G: { name: string; pos: string; out_of_position?: boolean } | null;
+  }>;
+  candidates: Array<{ name: string; pos: string }>;
 };
 
 const API_BASE = "http://127.0.0.1:8000/api";
@@ -273,18 +411,31 @@ export default function App() {
   const [scoreDay, setScoreDay] = useState(0);
   const [scoreBoard, setScoreBoard] = useState<DayBoard | null>(null);
   const [playerCareer, setPlayerCareer] = useState<PlayerCareerPayload | null>(null);
+  const [coachCandidates, setCoachCandidates] = useState<CoachCandidate[]>([]);
+  const [selectedCoachName, setSelectedCoachName] = useState("");
+  const [showCoachModal, setShowCoachModal] = useState(false);
+  const [linesData, setLinesData] = useState<LinesPayload | null>(null);
+  const [lineAssignments, setLineAssignments] = useState<Record<string, string>>({});
+  const [gameModeLocal, setGameModeLocal] = useState<"gm" | "coach" | "both">("both");
   const [loading, setLoading] = useState(false);
   const [simBusy, setSimBusy] = useState(false);
   const [error, setError] = useState("");
 
   const summary = useMemo(() => {
     if (!meta) return "Loading...";
+    if (mainNav === "scores" && scoreBoard) {
+      const label = scoreBoard.phase === "playoffs"
+        ? `Playoffs${scoreBoard.round ? ` - ${scoreBoard.round}` : ""}`
+        : "Regular Season";
+      return `Season ${scoreBoard.season} Day ${scoreBoard.day}/${scoreBoard.total_days} | ${label}`;
+    }
     return `Season ${meta.season} Day ${meta.day}/${meta.total_days}${meta.in_playoffs ? " | Playoffs" : ""}`;
-  }, [meta]);
+  }, [meta, mainNav, scoreBoard]);
 
   async function loadMeta() {
     const m = await fetchJson<Meta>("/meta");
     setMeta(m);
+    setGameModeLocal(m.game_mode);
     return m;
   }
 
@@ -335,6 +486,13 @@ export default function App() {
     setHomePanel(await fetchJson<HomePanel>("/home"));
   }
 
+  async function loadLines() {
+    if (!meta?.user_team) return;
+    const payload = await fetchJson<LinesPayload>(`/lines?team=${encodeURIComponent(meta.user_team)}`);
+    setLinesData(payload);
+    setLineAssignments(payload.assignments ?? {});
+  }
+
   async function loadDayBoards(sDay = scoreDay) {
     const scores = await fetchJson<DayBoard>(`/day-board?day=${sDay}`);
     setScoreBoard(scores);
@@ -383,17 +541,47 @@ export default function App() {
     await refreshAll();
   }
 
-  async function setCoachSettings(strategy: string, useCoach: boolean) {
+  async function setCoachSettings(strategy: string, overrideCoachForStrategy: boolean) {
     await fetchJson("/strategy", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ strategy, use_coach: useCoach }),
+      body: JSON.stringify({ strategy, override_coach_for_strategy: overrideCoachForStrategy }),
     });
     await refreshAll();
   }
 
-  async function fireCoach() {
-    await fetchJson("/fire-coach", { method: "POST" });
+  async function setControlOverrides(overrideCoachForLines: boolean, overrideCoachForStrategy: boolean) {
+    await fetchJson("/control-overrides", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        override_coach_for_lines: overrideCoachForLines,
+        override_coach_for_strategy: overrideCoachForStrategy,
+      }),
+    });
+    await refreshAll();
+  }
+
+  async function saveLines() {
+    await fetchJson("/lines", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ assignments: lineAssignments }),
+    });
+    await loadLines();
+    await loadHome();
+  }
+
+  async function loadCoachCandidates() {
+    const rows = await fetchJson<CoachCandidate[]>("/coach-candidates");
+    setCoachCandidates(rows);
+    if (rows.length > 0) setSelectedCoachName(rows[0].name);
+  }
+
+  async function fireCoach(hireName?: string) {
+    const q = hireName ? `?hire=${encodeURIComponent(hireName)}` : "";
+    await fetchJson(`/fire-coach${q}`, { method: "POST" });
+    setShowCoachModal(false);
     await refreshAll();
   }
 
@@ -404,11 +592,12 @@ export default function App() {
   }
 
   async function setGameMode(mode: "gm" | "coach" | "both") {
-    await fetchJson("/game-mode", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mode }),
-    });
+      await fetchJson("/game-mode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode }),
+      });
+    setGameModeLocal(mode);
     await refreshAll();
   }
 
@@ -417,6 +606,7 @@ export default function App() {
     setError("");
     try {
       await fetchJson<AdvanceResponse>("/advance", { method: "POST" });
+      setScoreDay(0);
       await refreshAll();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -461,8 +651,8 @@ export default function App() {
           </select>
           <select
             value={meta?.user_strategy ?? "balanced"}
-            onChange={(e) => void setCoachSettings(e.target.value, meta?.use_coach ?? true)}
-            disabled={!meta || meta.game_mode === "gm"}
+            onChange={(e) => void setCoachSettings(e.target.value, meta?.override_coach_for_strategy ?? false)}
+            disabled={!meta || !(meta.override_coach_for_strategy ?? false)}
           >
             {(meta?.strategies ?? []).map((s) => (
               <option key={s} value={s}>
@@ -473,14 +663,23 @@ export default function App() {
           <label className="inline-check">
             <input
               type="checkbox"
-              checked={meta?.use_coach ?? true}
-              onChange={(e) => void setCoachSettings(meta?.user_strategy ?? "balanced", e.target.checked)}
-              disabled={!meta || meta.game_mode !== "both"}
+              checked={meta?.override_coach_for_lines ?? false}
+              onChange={(e) => void setControlOverrides(e.target.checked, meta?.override_coach_for_strategy ?? false)}
+              disabled={!meta}
             />
-            Use Coach
+            Override Coach For Lines
+          </label>
+          <label className="inline-check">
+            <input
+              type="checkbox"
+              checked={meta?.override_coach_for_strategy ?? false}
+              onChange={(e) => void setControlOverrides(meta?.override_coach_for_lines ?? false, e.target.checked)}
+              disabled={!meta}
+            />
+            Override Coach For Strategy
           </label>
           <select
-            value={meta?.game_mode ?? "both"}
+            value={meta?.game_mode ?? gameModeLocal}
             onChange={(e) => void setGameMode(e.target.value as "gm" | "coach" | "both")}
             disabled={!meta}
           >
@@ -488,7 +687,13 @@ export default function App() {
             <option value="coach">Coach</option>
             <option value="both">Both</option>
           </select>
-          <button onClick={() => void fireCoach()} disabled={!meta || meta.game_mode === "coach"}>
+          <button
+            onClick={() => {
+              void loadCoachCandidates();
+              setShowCoachModal(true);
+            }}
+            disabled={!meta || meta.game_mode === "coach"}
+          >
             Fire Coach
           </button>
           <button onClick={() => void advanceDay()} disabled={simBusy || loading}>
@@ -515,6 +720,7 @@ export default function App() {
           ["team_stats", "Team Stats"],
           ["league_stats", "League Stats"],
           ["standings", "Standings"],
+          ["lines", "Lines"],
           ["franchise", "Franchise"],
         ].map(([key, label]) => (
           <button
@@ -524,6 +730,7 @@ export default function App() {
               if (key === "scores") setScoreDay(0);
               if (key === "team_stats") void loadLeaders("team");
               if (key === "league_stats") void loadLeaders("league");
+              if (key === "lines") void loadLines();
               setMainNav(key as MainNavKey);
             }}
           >
@@ -635,21 +842,62 @@ export default function App() {
           <div className="section-head">
             <h2>League Stats</h2>
           </div>
-          <div className="split">
-            <div><h3>Players</h3><table><thead><tr><th>Team</th><th>Player</th><th>Pos</th><th>GP</th><th>G</th><th>A</th><th>P</th></tr></thead><tbody>
-              {players.slice(0, 40).map((p) => (
-                <tr key={`${p.team}-${p.name}`} className="row-clickable" onClick={() => void openPlayerCareer(p.team, p.name)}>
-                  <td>{p.team}</td><td>{p.name}</td><td>{p.position}</td><td>{p.gp}</td><td>{p.g}</td><td>{p.a}</td><td>{p.p}</td>
-                </tr>
-              ))}
-            </tbody></table></div>
-            <div><h3>Goalies</h3><table><thead><tr><th>Team</th><th>Goalie</th><th>GP</th><th>W</th><th>L</th><th>OTL</th><th>GAA</th><th>SV%</th></tr></thead><tbody>
-              {goalies.slice(0, 30).map((g) => (
-                <tr key={`${g.team}-${g.name}`} className="row-clickable" onClick={() => void openPlayerCareer(g.team, g.name)}>
-                  <td>{g.team}</td><td>{g.name}</td><td>{g.gp}</td><td>{g.w}</td><td>{g.l}</td><td>{g.otl}</td><td>{g.gaa.toFixed(2)}</td><td>{g.sv_pct.toFixed(3)}</td>
-                </tr>
-              ))}
-            </tbody></table></div>
+          <div className="leaders-grid">
+            <div>
+              <h3>Skating Leaders</h3>
+              <LeaderBlock
+                title="Points"
+                valueLabel="PTS"
+                rows={players}
+                getValue={(p) => p.p}
+                formatValue={(v) => `${v}`}
+                onPick={(p) => void openPlayerCareer(p.team, p.name)}
+              />
+              <LeaderBlock
+                title="Goals"
+                valueLabel="G"
+                rows={players}
+                getValue={(p) => p.g}
+                formatValue={(v) => `${v}`}
+                onPick={(p) => void openPlayerCareer(p.team, p.name)}
+              />
+              <LeaderBlock
+                title="Plus/Minus"
+                valueLabel="+/-"
+                rows={players}
+                getValue={(p) => p.plus_minus}
+                formatValue={(v) => `${v}`}
+                onPick={(p) => void openPlayerCareer(p.team, p.name)}
+              />
+            </div>
+            <div>
+              <h3>Goaltending Leaders</h3>
+              <LeaderBlock
+                title="Goals Against Avg"
+                valueLabel="GAA"
+                rows={goalies}
+                getValue={(g) => g.gaa}
+                sortAsc
+                formatValue={(v) => Number(v).toFixed(2)}
+                onPick={(g) => void openPlayerCareer(g.team, g.name)}
+              />
+              <LeaderBlock
+                title="Save Percentage"
+                valueLabel="SVPCT"
+                rows={goalies}
+                getValue={(g) => g.sv_pct}
+                formatValue={(v) => Number(v).toFixed(3).replace(/^0/, "")}
+                onPick={(g) => void openPlayerCareer(g.team, g.name)}
+              />
+              <LeaderBlock
+                title="Wins"
+                valueLabel="W"
+                rows={goalies}
+                getValue={(g) => g.w}
+                formatValue={(v) => `${v}`}
+                onPick={(g) => void openPlayerCareer(g.team, g.name)}
+              />
+            </div>
           </div>
         </section>
       ) : null}
@@ -660,10 +908,10 @@ export default function App() {
             <h2>{meta?.user_team ?? "My Team"} Stats</h2>
           </div>
           <div className="split">
-            <div><h3>Skaters</h3><table><thead><tr><th>Player</th><th>Pos</th><th>GP</th><th>G</th><th>A</th><th>P</th></tr></thead><tbody>
+            <div><h3>Skaters</h3><table><thead><tr><th>Player</th><th>Pos</th><th>GP</th><th>G</th><th>A</th><th>P</th><th>+/-</th><th>PIM</th><th>TOI/G</th><th>PPG</th><th>PPA</th><th>SHG</th><th>SHA</th><th>S</th><th>S%</th></tr></thead><tbody>
               {players.map((p) => (
                 <tr key={`${p.team}-${p.name}`} className="row-clickable" onClick={() => void openPlayerCareer(p.team, p.name)}>
-                  <td>{p.name}</td><td>{p.position}</td><td>{p.gp}</td><td>{p.g}</td><td>{p.a}</td><td>{p.p}</td>
+                  <td>{p.name}</td><td>{p.position}</td><td>{p.gp}</td><td>{p.g}</td><td>{p.a}</td><td>{p.p}</td><td>{p.plus_minus}</td><td>{p.pim}</td><td>{p.toi_g.toFixed(1)}</td><td>{p.ppg}</td><td>{p.ppa}</td><td>{p.shg}</td><td>{p.sha}</td><td>{p.shots}</td><td>{p.shot_pct.toFixed(1)}</td>
                 </tr>
               ))}
             </tbody></table></div>
@@ -698,43 +946,140 @@ export default function App() {
               <button onClick={() => setScoreDay(0)}>Latest</button>
             </div>
           </div>
-          <p className="muted">Season {scoreBoard?.season ?? "-"} | {scoreBoard?.status === "played" ? "Most Recent Finals" : "Scheduled Games"}</p>
+          <p className="muted">
+            Season {scoreBoard?.season ?? "-"} | {scoreBoard?.phase === "playoffs" ? `Playoffs${scoreBoard?.round ? ` - ${scoreBoard.round}` : ""}` : "Regular Season"} | {scoreBoard?.status === "played" ? "Most Recent Finals" : "Scheduled Games"}
+          </p>
           <div className="score-list">
             {(scoreBoard?.games ?? []).map((g, idx) => (
-              <div key={`score-${idx}`} className="score-card">
-                <div className="score-main">
-                  <div className="score-teams">
-                    <div>{g.away} {g.away_record ? `(${g.away_record})` : ""}</div>
-                    <div>{g.home} {g.home_record ? `(${g.home_record})` : ""}</div>
-                  </div>
-                  <div className="muted small">Goalies: {g.away_goalie || "-"} {g.away_goalie_sv || ""} | {g.home_goalie || "-"} {g.home_goalie_sv || ""}</div>
-                  <div className="muted small">Attendance: {typeof g.attendance === "number" ? g.attendance.toLocaleString() : "-"}</div>
-                  {(g.three_stars ?? []).length > 0 ? (
-                    <div className="muted small">
-                      {(g.three_stars ?? []).map((s) => `${s.label}: ${s.summary}`).join(" | ")}
-                    </div>
-                  ) : null}
-                </div>
-                <div className="score-values">
-                  <div>{g.away_goals ?? "-"}</div>
-                  <div>{g.home_goals ?? "-"}</div>
-                </div>
-                <div className="muted small">{g.overtime ? "OT" : ""}</div>
-              </div>
+              <GameSummaryCard
+                key={`score-${idx}`}
+                game={g}
+                teamLogos={meta?.team_logos}
+                showCommentary={false}
+                showTeamLabels={false}
+              />
             ))}
           </div>
         </section>
       ) : null}
 
+      {mainNav === "lines" ? (
+        <section className="card">
+          <h2>{linesData?.team ?? (meta?.user_team ?? "Team")} Lines</h2>
+          <p className="muted">
+            Coach: {linesData?.coach.name ?? "-"} ({linesData ? linesData.coach.rating.toFixed(2) : "-"}, {linesData?.coach.style ?? "-"})
+          </p>
+          <p className="muted">
+            Position Penalty: {(linesData?.position_penalty ?? 0).toFixed(3)} | {linesData?.override_coach_for_lines ? "Manual Lines Enabled" : "Coach Controls Lines"}
+          </p>
+          {linesData?.override_coach_for_lines ? (
+            <div className="inline-controls">
+              <button onClick={() => void saveLines()} disabled={!linesData}>Save Lines</button>
+              <button onClick={() => void loadLines()} disabled={!linesData}>Reset To Current</button>
+            </div>
+          ) : null}
+          <h3>Line Combinations</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>Unit</th>
+                <th>LW</th>
+                <th>C</th>
+                <th>RW</th>
+                <th>LD</th>
+                <th>RD</th>
+                <th>G</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(linesData?.units ?? []).map((unit, idx) => {
+                const slotId = (col: "LW" | "C" | "RW" | "LD" | "RD" | "G") => {
+                  if (col === "LD" || col === "RD") return idx < 3 ? `${col}${idx + 1}` : "";
+                  if (col === "G") return idx < 2 ? `G${idx + 1}` : "";
+                  return `${col}${idx + 1}`;
+                };
+                const renderCell = (col: "LW" | "C" | "RW" | "LD" | "RD" | "G", item: { name: string; pos: string; out_of_position?: boolean } | null) => {
+                  const id = slotId(col);
+                  if (!id) return "-";
+                  if (!(linesData?.override_coach_for_lines ?? false)) {
+                    if (!item) return "-";
+                    return (
+                      <span className={item.out_of_position ? "neg" : ""}>
+                        {item.name} ({item.pos})
+                      </span>
+                    );
+                  }
+                  return (
+                    <select
+                      value={lineAssignments[id] ?? ""}
+                      onChange={(e) => setLineAssignments((prev) => ({ ...prev, [id]: e.target.value }))}
+                    >
+                      <option value="">-</option>
+                      {(linesData?.candidates ?? []).map((c) => (
+                        <option key={`${id}-${c.name}`} value={c.name}>
+                          {c.name} ({c.pos})
+                        </option>
+                      ))}
+                    </select>
+                  );
+                };
+                return (
+                  <tr key={`unit-${idx}`}>
+                    <td>{unit.unit}</td>
+                    <td>{renderCell("LW", unit.LW)}</td>
+                    <td>{renderCell("C", unit.C)}</td>
+                    <td>{renderCell("RW", unit.RW)}</td>
+                    <td>{renderCell("LD", unit.LD)}</td>
+                    <td>{renderCell("RD", unit.RD)}</td>
+                    <td>{renderCell("G", unit.G)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </section>
+      ) : null}
+
       {mainNav === "franchise" ? (
         <section className="card franchise">
-          <h2>{meta?.user_team ?? "Team"} Franchise</h2>
+          <h2>
+            {meta?.user_team ?? "Team"} Franchise
+            <span className="cup-badges">{Array.from({ length: franchise?.cup_count ?? 0 }).map((_, i) => <span key={`fc-${i}`}>🏆</span>)}</span>
+          </h2>
           {franchise ? (
             <>
               <h3>Season History</h3>
               <table><thead><tr><th>Season</th><th>GP</th><th>W</th><th>L</th><th>OTL</th><th>Pts</th><th>Conf Rank</th><th>Div Rank</th><th>Playoff</th><th>Playoff Result</th><th>Cup</th></tr></thead>
                 <tbody>{franchise.history.map((h) => <tr key={`h-${h.season}`}><td>{h.season}</td><td>{h.gp}</td><td>{h.w}</td><td>{h.l}</td><td>{h.otl}</td><td>{h.pts}</td><td>{h.conference_rank}</td><td>{h.division_rank}</td><td>{h.playoff}</td><td>{h.playoff_result}</td><td>{h.cup_winner}</td></tr>)}</tbody>
               </table>
+              <div className="split">
+                <div>
+                  <h3>Draft Results</h3>
+                  <table>
+                    <thead><tr><th>Season</th><th>Player</th><th>Pos</th><th>Pick</th></tr></thead>
+                    <tbody>
+                      {(franchise.draft_picks ?? []).slice(0, 30).map((d, idx) => (
+                        <tr key={`d-${idx}-${d.season}-${d.name}`}>
+                          <td>{d.season}</td><td>{d.name}</td><td>{d.position}</td><td>R{d.round} #{d.overall}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div>
+                  <h3>Retired Players</h3>
+                  <table>
+                    <thead><tr><th>Season</th><th>Player</th></tr></thead>
+                    <tbody>
+                      {(franchise.retired ?? []).slice(0, 30).map((r, idx) => (
+                        <tr key={`r-${idx}-${r.season}-${r.entry}`}>
+                          <td>{r.season}</td><td>{r.entry}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </>
           ) : <p>Loading franchise data...</p>}
         </section>
@@ -742,7 +1087,10 @@ export default function App() {
 
       {mainNav === "home" ? (
         <section className="card">
-          <h2>{homePanel?.team ?? meta?.user_team ?? "Team"} Home</h2>
+          <h2>
+            {homePanel?.team ?? meta?.user_team ?? "Team"} Home
+            <span className="cup-badges">{Array.from({ length: homePanel?.cup_count ?? 0 }).map((_, i) => <span key={`hc-${i}`}>🏆</span>)}</span>
+          </h2>
           <p className="muted">
             Record {homePanel?.team_summary?.record ?? "-"} | {homePanel?.team_summary?.division ?? "-"} Division: {homePanel?.team_summary?.division_rank ?? "-"} place | {homePanel?.team_summary?.points ?? 0} pts
           </p>
@@ -752,36 +1100,67 @@ export default function App() {
                 <h3>Latest Team Game</h3>
                 {homePanel.latest_game ? (
                   <>
-                    <div className="home-matchup">
-                      <div className="home-matchup-team">
-                        {meta?.team_logos?.[homePanel.latest_game.away] ? (
-                          <img className="table-logo" src={logoUrl(meta.team_logos[homePanel.latest_game.away])} alt={homePanel.latest_game.away} />
-                        ) : null}
-                        <span>{homePanel.latest_game.away}</span>
-                      </div>
-                      <div className="home-matchup-score">
-                        {homePanel.latest_game.away_goals} - {homePanel.latest_game.home_goals}{homePanel.latest_game.overtime ? " OT" : ""}
-                      </div>
-                      <div className="home-matchup-team">
-                        {meta?.team_logos?.[homePanel.latest_game.home] ? (
-                          <img className="table-logo" src={logoUrl(meta.team_logos[homePanel.latest_game.home])} alt={homePanel.latest_game.home} />
-                        ) : null}
-                        <span>{homePanel.latest_game.home}</span>
-                      </div>
-                    </div>
+                    <GameSummaryCard game={homePanel.latest_game} teamLogos={meta?.team_logos} />
                     <p className="muted">
                       Day {homePanel.latest_game_day} | {homePanel.latest_game.away} {homePanel.latest_game.away_goals} at {homePanel.latest_game.home} {homePanel.latest_game.home_goals}
                       {homePanel.latest_game.overtime ? " (OT)" : ""}
                     </p>
-                    <p className="muted">
-                      Goalies: {homePanel.latest_game.away_goalie} {homePanel.latest_game.away_goalie_sv} | {homePanel.latest_game.home_goalie} {homePanel.latest_game.home_goalie_sv}
-                    </p>
-                    <div className="results">
-                      {(homePanel.latest_game.three_stars ?? []).map((s) => (
-                        <div key={`${s.label}-${s.summary}`} className="line">{s.label}: {s.summary}</div>
-                      ))}
-                    </div>
+                    {(homePanel.recent_team_games ?? []).length > 0 ? (
+                      <div>
+                        <h3>Recent Team Games</h3>
+                        <div className="score-list">
+                          {(homePanel.recent_team_games ?? [])
+                            .filter(
+                              (g) =>
+                                !homePanel.latest_game
+                                || g.home !== homePanel.latest_game.home
+                                || g.away !== homePanel.latest_game.away
+                                || g.home_goals !== homePanel.latest_game.home_goals
+                                || g.away_goals !== homePanel.latest_game.away_goals,
+                            )
+                            .map((g, idx) => (
+                            <div key={`home-day-${idx}-${g.away}-${g.home}`}>
+                              <p className="muted">Day {g.game_day ?? "-"}</p>
+                              <GameSummaryCard game={g} teamLogos={meta?.team_logos} />
+                            </div>
+                            ))}
+                        </div>
+                      </div>
+                    ) : null}
                   </>
+                ) : null}
+                {homePanel.playoffs?.active && homePanel.playoffs.latest_team_game ? (
+                  <div>
+                    <h3>Latest Playoff Result</h3>
+                    <p className="muted">
+                      Playoff Day {homePanel.playoffs.latest_team_game_day ?? "-"} / {homePanel.playoffs.total_days ?? "-"}
+                      {homePanel.playoffs.latest_team_game.round ? ` | ${homePanel.playoffs.latest_team_game.round}` : ""}
+                      {homePanel.playoffs.latest_team_game.game_number ? ` | Game ${homePanel.playoffs.latest_team_game.game_number}` : ""}
+                    </p>
+                    <GameSummaryCard game={homePanel.playoffs.latest_team_game} teamLogos={meta?.team_logos} />
+                  </div>
+                ) : null}
+                {homePanel.upcoming_game ? (
+                  <div>
+                    <h3>Upcoming Game</h3>
+                    <p className="muted">
+                      {homePanel.upcoming_phase === "playoffs" ? "Playoff" : "Regular"} Day {homePanel.upcoming_game_day ?? "-"}
+                      {homePanel.upcoming_round ? ` | ${homePanel.upcoming_round}` : ""}
+                      {homePanel.upcoming_game.game_number ? ` | Game ${homePanel.upcoming_game.game_number}` : ""}
+                    </p>
+                    <div className="score-card">
+                      <div className="score-main">
+                        <div className="score-team-row">
+                          {meta?.team_logos?.[homePanel.upcoming_game.away] ? <img className="mini-logo" src={logoUrl(meta.team_logos[homePanel.upcoming_game.away])} alt={homePanel.upcoming_game.away} /> : null}
+                          <span>{homePanel.upcoming_game.away}</span>
+                        </div>
+                        <div className="score-team-row">
+                          {meta?.team_logos?.[homePanel.upcoming_game.home] ? <img className="mini-logo" src={logoUrl(meta.team_logos[homePanel.upcoming_game.home])} alt={homePanel.upcoming_game.home} /> : null}
+                          <span>{homePanel.upcoming_game.home}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 ) : null}
               </div>
               <div>
@@ -792,11 +1171,15 @@ export default function App() {
                   Off {homePanel.coach.offense.toFixed(2)} | Def {homePanel.coach.defense.toFixed(2)} | Goalie Dev {homePanel.coach.goalie_dev.toFixed(2)}
                 </p>
                 <p className="muted">
-                  Strategy: {homePanel.control.user_strategy} | Coach Decisions: {homePanel.control.use_coach ? "On" : "Off"}
+                  Strategy: {homePanel.control.user_strategy} | Override Lines: {homePanel.control.override_coach_for_lines ? "On" : "Off"} | Override Strategy: {homePanel.control.override_coach_for_strategy ? "On" : "Off"}
                 </p>
                 <p className="muted">
                   Game Mode: {homePanel.control.game_mode.toUpperCase()} | PP% {(homePanel.special_teams?.pp_pct ?? 0).toFixed(3)} | PK% {(homePanel.special_teams?.pk_pct ?? 0).toFixed(3)}
                 </p>
+                <p className="muted">
+                  Fan Sentiment: {homePanel.fan_sentiment?.score?.toFixed(1) ?? "-"} / 100 ({homePanel.fan_sentiment?.mood ?? "Unknown"}, {homePanel.fan_sentiment?.trend ?? "Flat"})
+                </p>
+                <p className="muted">{homePanel.fan_sentiment?.summary ?? ""}</p>
               </div>
             </div>
           ) : (
@@ -805,12 +1188,42 @@ export default function App() {
         </section>
       ) : null}
 
+      {showCoachModal ? (
+        <div className="modal-overlay" onClick={() => setShowCoachModal(false)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <h3>Hire Coach</h3>
+            <div className="inline-controls">
+              <select value={selectedCoachName} onChange={(e) => setSelectedCoachName(e.target.value)}>
+                {coachCandidates.map((c) => (
+                  <option key={c.name} value={c.name}>{c.name}</option>
+                ))}
+              </select>
+              <button onClick={() => void fireCoach(selectedCoachName)} disabled={!selectedCoachName}>Hire Selected</button>
+              <button onClick={() => setShowCoachModal(false)}>Cancel</button>
+            </div>
+            <div className="modal-lines">
+              <table>
+                <thead><tr><th>Coach</th><th>Rating</th><th>Style</th><th>W-L-OTL</th><th>Cups</th><th>Source</th></tr></thead>
+                <tbody>
+                  {coachCandidates.map((c) => (
+                    <tr key={`coach-${c.name}`} className={selectedCoachName === c.name ? "row-clickable" : ""} onClick={() => setSelectedCoachName(c.name)}>
+                      <td>{c.name}</td><td>{c.rating.toFixed(2)}</td><td>{c.style}</td><td>{c.w}-{c.l}-{c.otl}</td><td>{c.cups}</td><td>{c.source}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {playerCareer ? (
         <div className="modal-overlay" onClick={() => setPlayerCareer(null)}>
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-            <h3>
-              {playerCareer.player.name} ({playerCareer.player.team}) Career
-            </h3>
+            <h3>{playerCareer.player.name}</h3>
+            <p className="muted">
+              Position: {playerCareer.player.position} | Team: {playerCareer.player.team} | Draft: {playerCareer.player.draft_label ?? "Undrafted"}
+            </p>
             <div className="modal-lines">
               <table>
                 <thead>
@@ -850,6 +1263,93 @@ export default function App() {
   );
 }
 
+function GameSummaryCard({
+  game,
+  teamLogos,
+  showCommentary = true,
+  showTeamLabels = true,
+}: {
+  game: {
+    home: string;
+    away: string;
+    home_goals?: number;
+    away_goals?: number;
+    overtime?: boolean;
+    home_record?: string;
+    away_record?: string;
+    home_goalie?: string;
+    away_goalie?: string;
+    home_goalie_sv?: string;
+    away_goalie_sv?: string;
+    attendance?: number;
+    arena_capacity?: number;
+    periods?: Array<{ label: string; home: number; away: number }>;
+    commentary?: string[];
+    three_stars?: Array<{ label: string; summary: string }>;
+  };
+  teamLogos?: Record<string, string>;
+  showCommentary?: boolean;
+  showTeamLabels?: boolean;
+}) {
+  return (
+    <div className="score-card">
+      <div className="score-main">
+        <div className="score-teams">
+          <div className="score-team-row">
+            {teamLogos?.[game.away] ? <img className="mini-logo" src={logoUrl(teamLogos[game.away])} alt={game.away} /> : null}
+            <span>{showTeamLabels ? <strong>Away:</strong> : null} {game.away} {game.away_record ? `(${game.away_record})` : ""}</span>
+          </div>
+          <div className="score-team-row">
+            {teamLogos?.[game.home] ? <img className="mini-logo" src={logoUrl(teamLogos[game.home])} alt={game.home} /> : null}
+            <span>{showTeamLabels ? <strong>Home:</strong> : null} {game.home} {game.home_record ? `(${game.home_record})` : ""}</span>
+          </div>
+        </div>
+        <div className="muted small">Goalies: {game.away_goalie || "-"} {game.away_goalie_sv || ""} | {game.home_goalie || "-"} {game.home_goalie_sv || ""}</div>
+        <div className="muted small">
+          Attendance: {typeof game.attendance === "number" ? game.attendance.toLocaleString() : "-"}
+          {typeof game.arena_capacity === "number" ? `/${game.arena_capacity.toLocaleString()}` : ""}
+        </div>
+        {(game.periods ?? []).length > 0 ? (
+          <table className="period-table">
+            <thead>
+              <tr>
+                <th>Team</th>
+                {(game.periods ?? []).map((p) => <th key={`h-${game.home}-${game.away}-${p.label}`}>{p.label}</th>)}
+                <th>T</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>{game.away}</td>
+                {(game.periods ?? []).map((p) => <td key={`a-${game.away}-${p.label}`}>{p.away}</td>)}
+                <td className="total-goals">{game.away_goals ?? "-"}</td>
+              </tr>
+              <tr>
+                <td>{game.home}</td>
+                {(game.periods ?? []).map((p) => <td key={`h-${game.home}-${p.label}`}>{p.home}</td>)}
+                <td className="total-goals">{game.home_goals ?? "-"}</td>
+              </tr>
+            </tbody>
+          </table>
+        ) : null}
+        {showCommentary && (game.commentary ?? []).length > 0 ? (
+          <div className="results">
+            {(game.commentary ?? []).map((line, idx) => (
+              <div key={`c-${idx}-${line}`} className="line">{line}</div>
+            ))}
+          </div>
+        ) : null}
+        {(game.three_stars ?? []).length > 0 ? (
+          <div className="muted small">
+            {(game.three_stars ?? []).map((s) => `${s.label}: ${s.summary}`).join(" | ")}
+          </div>
+        ) : null}
+      </div>
+      <div className="muted small">{game.overtime ? "OT" : ""}</div>
+    </div>
+  );
+}
+
 function StandingsTable({ rows }: { rows: StandingRow[] }) {
   return (
     <table>
@@ -867,5 +1367,53 @@ function StandingsTable({ rows }: { rows: StandingRow[] }) {
         ))}
       </tbody>
     </table>
+  );
+}
+
+function LeaderBlock<T extends { name: string; team: string }>({
+  title,
+  valueLabel,
+  rows,
+  getValue,
+  formatValue,
+  sortAsc = false,
+  onPick,
+}: {
+  title: string;
+  valueLabel: string;
+  rows: T[];
+  getValue: (row: T) => number;
+  formatValue: (value: number) => string;
+  sortAsc?: boolean;
+  onPick: (row: T) => void;
+}) {
+  const sorted = [...rows].sort((a, b) => (sortAsc ? getValue(a) - getValue(b) : getValue(b) - getValue(a)));
+  const topRows = sorted.slice(0, 5);
+
+  function rankAt(idx: number): number {
+    if (idx <= 0) return 1;
+    const cur = getValue(topRows[idx]);
+    const prev = getValue(topRows[idx - 1]);
+    if (cur === prev) return rankAt(idx - 1);
+    return idx + 1;
+  }
+
+  return (
+    <section className="leader-block">
+      <header className="leader-head">
+        <span>{title}</span>
+        <span>{valueLabel}</span>
+      </header>
+      <div>
+        {topRows.map((row, idx) => (
+          <div key={`${row.team}-${row.name}-${title}`} className="leader-row row-clickable" onClick={() => onPick(row)}>
+            <span className="leader-rank">{rankAt(idx)}</span>
+            <span className="leader-player">{row.name} <small>{row.team.slice(0, 3).toUpperCase()}</small></span>
+            <span className="leader-value">{formatValue(getValue(row))}</span>
+          </div>
+        ))}
+      </div>
+      <div className="leader-link">Complete Leaders</div>
+    </section>
   );
 }

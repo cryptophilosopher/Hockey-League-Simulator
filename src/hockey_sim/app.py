@@ -177,6 +177,7 @@ def build_default_teams() -> list[Team]:
         conference = "Eastern" if division in {"East", "Central"} else "Western"
         for team_name, offense, defense, physical, primary, secondary in entries:
             roster = _make_roster(team_name, offense, defense, physical, name_gen)
+            arena_rng = random.Random(f"arena:{team_name}")
             teams.append(
                 Team(
                     name=team_name,
@@ -185,6 +186,7 @@ def build_default_teams() -> list[Team]:
                     logo=team_logos.get(team_name, "TM"),
                     primary_color=primary,
                     secondary_color=secondary,
+                    arena_capacity=arena_rng.randint(11000, 21500),
                     roster=roster,
                 )
             )

@@ -7,6 +7,15 @@ from uuid import uuid4
 FORWARD_POSITIONS = {"C", "LW", "RW"}
 DEFENSE_POSITIONS = {"D"}
 GOALIE_POSITIONS = {"G"}
+FORWARD_LINE_SLOTS = (
+    "LW1", "C1", "RW1",
+    "LW2", "C2", "RW2",
+    "LW3", "C3", "RW3",
+    "LW4", "C4", "RW4",
+)
+DEFENSE_LINE_SLOTS = ("LD1", "RD1", "LD2", "RD2", "LD3", "RD3")
+GOALIE_LINE_SLOTS = ("G1", "G2")
+ALL_LINE_SLOTS = FORWARD_LINE_SLOTS + DEFENSE_LINE_SLOTS + GOALIE_LINE_SLOTS
 
 
 @dataclass(slots=True)
@@ -81,8 +90,10 @@ class Team:
     logo: str = "🏒"
     primary_color: str = "#1f3a93"
     secondary_color: str = "#d7e1f5"
+    arena_capacity: int = 16000
     roster: list[Player] = field(default_factory=list)
     dressed_player_names: set[str] = field(default_factory=set)
+    line_assignments: dict[str, str] = field(default_factory=dict)
     starting_goalie_name: str | None = None
     coach_name: str = "Staff Coach"
     coach_rating: float = 3.0
@@ -103,8 +114,31 @@ class Team:
     def __post_init__(self) -> None:
         if len(self.roster) > self.MAX_ROSTER_SIZE:
             raise ValueError(f"{self.name} roster exceeds max of {self.MAX_ROSTER_SIZE}.")
-        if not self.dressed_player_names:
+        if self.line_assignments:
+            self._refresh_dressed_from_assignments()
+        elif not self.dressed_player_names:
             self.set_default_lineup()
+
+    def _slot_expected_position(self, slot: str) -> str:
+        if slot.startswith("LW"):
+            return "LW"
+        if slot.startswith("C"):
+            return "C"
+        if slot.startswith("RW"):
+            return "RW"
+        if slot.startswith("LD") or slot.startswith("RD"):
+            return "D"
+        if slot.startswith("G"):
+            return "G"
+        return ""
+
+    def _overall_skater(self, player: Player) -> float:
+        return player.shooting * 0.38 + player.playmaking * 0.32 + player.defense * 0.22 + player.physical * 0.08
+
+    def _refresh_dressed_from_assignments(self) -> None:
+        names = {name for name in self.line_assignments.values() if name}
+        if names:
+            self.dressed_player_names = names
 
     def _lineup_noise(self, seed_text: str) -> float:
         token = sum(ord(ch) for ch in seed_text)
@@ -139,12 +173,51 @@ class Team:
         return [p for p in self.dressed_players() if p.position != "G"]
 
     def dressed_forwards(self) -> list[Player]:
+        used: set[str] = set()
+        out: list[Player] = []
+        for slot in FORWARD_LINE_SLOTS:
+            name = self.line_assignments.get(slot, "")
+            if not name or name in used:
+                continue
+            player = self._player_by_name(name)
+            if player is None or player.is_injured:
+                continue
+            out.append(player)
+            used.add(name)
+        if out:
+            return out
         return [p for p in self.dressed_players() if p.position in FORWARD_POSITIONS]
 
     def dressed_defense(self) -> list[Player]:
+        used: set[str] = set()
+        out: list[Player] = []
+        for slot in DEFENSE_LINE_SLOTS:
+            name = self.line_assignments.get(slot, "")
+            if not name or name in used:
+                continue
+            player = self._player_by_name(name)
+            if player is None or player.is_injured:
+                continue
+            out.append(player)
+            used.add(name)
+        if out:
+            return out
         return [p for p in self.dressed_players() if p.position in DEFENSE_POSITIONS]
 
     def dressed_goalies(self) -> list[Player]:
+        used: set[str] = set()
+        out: list[Player] = []
+        for slot in GOALIE_LINE_SLOTS:
+            name = self.line_assignments.get(slot, "")
+            if not name or name in used:
+                continue
+            player = self._player_by_name(name)
+            if player is None or player.is_injured:
+                continue
+            out.append(player)
+            used.add(name)
+        if out:
+            return out
         return [p for p in self.dressed_players() if p.position in GOALIE_POSITIONS]
 
     def active_players(self) -> list[Player]:
@@ -243,12 +316,127 @@ class Team:
             reverse=True,
         )
 
-        selected = (
-            forwards[: self.DRESSED_FORWARDS]
-            + defense[: self.DRESSED_DEFENSE]
-            + goalies[: self.DRESSED_GOALIES]
+        healthy_skaters = sorted(
+            [p for p in healthy if p.position != "G"],
+            key=lambda p: self._overall_skater(p),
+            reverse=True,
         )
-        self.dressed_player_names = {p.name for p in selected}
+        healthy_goalies = sorted(
+            goalies,
+            key=lambda p: p.goaltending,
+            reverse=True,
+        )
+
+        assignments: dict[str, str] = {}
+        used: set[str] = set()
+
+        def pick_best(
+            preferred: list[Player],
+            fallback: list[Player],
+        ) -> Player | None:
+            for pool in (preferred, fallback):
+                for candidate in pool:
+                    if candidate.name not in used and not candidate.is_injured:
+                        return candidate
+            return None
+
+        for slot in FORWARD_LINE_SLOTS:
+            expected = self._slot_expected_position(slot)
+            preferred = [p for p in forwards if p.position == expected]
+            chosen = pick_best(preferred, forwards)
+            if chosen is None:
+                chosen = pick_best([], healthy_skaters)
+            if chosen is not None:
+                assignments[slot] = chosen.name
+                used.add(chosen.name)
+
+        for slot in DEFENSE_LINE_SLOTS:
+            preferred = defense
+            chosen = pick_best(preferred, healthy_skaters)
+            if chosen is not None:
+                assignments[slot] = chosen.name
+                used.add(chosen.name)
+
+        for slot in GOALIE_LINE_SLOTS:
+            chosen = pick_best(healthy_goalies, healthy_skaters)
+            if chosen is not None:
+                assignments[slot] = chosen.name
+                used.add(chosen.name)
+
+        self.line_assignments = assignments
+        self._refresh_dressed_from_assignments()
+        g1_name = self.line_assignments.get("G1")
+        g1 = self._player_by_name(g1_name) if g1_name else None
+        self.starting_goalie_name = g1.name if g1 is not None and g1.position == "G" else None
+
+    def set_line_assignments(self, requested: dict[str, str]) -> None:
+        self.set_default_lineup()
+        auto_assignments = dict(self.line_assignments)
+        healthy = [p for p in self.active_players()]
+        healthy_sorted = sorted(
+            healthy,
+            key=lambda p: (p.goaltending if p.position == "G" else self._overall_skater(p)),
+            reverse=True,
+        )
+        final: dict[str, str] = {}
+        used: set[str] = set()
+        requested = requested or {}
+
+        for slot in ALL_LINE_SLOTS:
+            chosen_name = ""
+            req_name = str(requested.get(slot, "")).strip()
+            if req_name:
+                req_player = self._player_by_name(req_name)
+                if req_player is not None and not req_player.is_injured and req_player.name not in used:
+                    chosen_name = req_player.name
+            if not chosen_name:
+                auto_name = str(auto_assignments.get(slot, "")).strip()
+                auto_player = self._player_by_name(auto_name) if auto_name else None
+                if auto_player is not None and not auto_player.is_injured and auto_player.name not in used:
+                    chosen_name = auto_player.name
+            if not chosen_name:
+                for p in healthy_sorted:
+                    if p.name not in used:
+                        chosen_name = p.name
+                        break
+            if chosen_name:
+                final[slot] = chosen_name
+                used.add(chosen_name)
+
+        self.line_assignments = final
+        self._refresh_dressed_from_assignments()
+        g1_name = self.line_assignments.get("G1")
+        g1 = self._player_by_name(g1_name) if g1_name else None
+        self.starting_goalie_name = g1.name if g1 is not None and g1.position == "G" else None
+
+    def lineup_position_penalty(self) -> float:
+        penalty = 0.0
+        for slot in ALL_LINE_SLOTS:
+            name = self.line_assignments.get(slot, "")
+            if not name:
+                penalty += 0.08
+                continue
+            player = self._player_by_name(name)
+            if player is None or player.is_injured:
+                penalty += 0.08
+                continue
+            expected = self._slot_expected_position(slot)
+            actual = player.position
+            if expected == actual:
+                continue
+            if expected in FORWARD_POSITIONS and actual in FORWARD_POSITIONS:
+                penalty += 0.03
+            elif expected == "D" and actual in FORWARD_POSITIONS:
+                penalty += 0.07
+            elif expected in FORWARD_POSITIONS and actual == "D":
+                penalty += 0.08
+            elif expected == "G" and actual != "G":
+                penalty += 0.25
+            elif expected != "G" and actual == "G":
+                penalty += 0.18
+            else:
+                penalty += 0.09
+        return min(0.40, penalty)
 
     def can_dress_player(self, player: Player) -> bool:
         if player.is_injured:

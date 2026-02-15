@@ -336,6 +336,7 @@ class LeagueSimulator:
             "logo": team.logo,
             "primary_color": team.primary_color,
             "secondary_color": team.secondary_color,
+            "arena_capacity": team.arena_capacity,
             "starting_goalie_name": team.starting_goalie_name,
             "coach_name": team.coach_name,
             "coach_rating": team.coach_rating,
@@ -347,6 +348,7 @@ class LeagueSimulator:
             "coach_changes_recent": team.coach_changes_recent,
             "coach_honeymoon_games_remaining": team.coach_honeymoon_games_remaining,
             "dressed_player_names": sorted(list(team.dressed_player_names)),
+            "line_assignments": dict(team.line_assignments),
             "roster": [self._serialize_player(player) for player in team.roster],
         }
 
@@ -372,8 +374,14 @@ class LeagueSimulator:
                     logo=str(raw_team.get("logo", "🏒")),
                     primary_color=str(raw_team.get("primary_color", "#1f3a93")),
                     secondary_color=str(raw_team.get("secondary_color", "#d7e1f5")),
+                    arena_capacity=int(raw_team.get("arena_capacity", 16000)),
                     roster=roster,
                     dressed_player_names=dressed,
+                    line_assignments=(
+                        {str(k): str(v) for k, v in raw_team.get("line_assignments", {}).items()}
+                        if isinstance(raw_team.get("line_assignments", {}), dict)
+                        else {}
+                    ),
                     starting_goalie_name=(
                         str(raw_team.get("starting_goalie_name"))
                         if raw_team.get("starting_goalie_name") is not None
@@ -939,7 +947,8 @@ class LeagueSimulator:
         self,
         user_team_name: str | None = None,
         user_strategy: str = "balanced",
-        use_user_coach: bool = True,
+        use_user_lines: bool = False,
+        use_user_strategy: bool = False,
     ) -> list[GameResult]:
         if self.is_complete():
             return []
@@ -958,13 +967,13 @@ class LeagueSimulator:
                 played_yesterday.add(away_prev.name)
         day_results: list[GameResult] = []
         for home, away in day_games:
-            if home.name != user_team_name:
+            if home.name != user_team_name or not use_user_lines:
                 home.set_default_lineup()
-            if away.name != user_team_name:
+            if away.name != user_team_name or not use_user_lines:
                 away.set_default_lineup()
 
-            home_coach_controls = home.name != user_team_name or use_user_coach
-            away_coach_controls = away.name != user_team_name or use_user_coach
+            home_coach_controls = home.name != user_team_name or not use_user_lines
+            away_coach_controls = away.name != user_team_name or not use_user_lines
             if home_coach_controls:
                 home_goalie = self._coach_choose_starting_goalie(home)
                 home.set_starting_goalie(home_goalie.name if home_goalie is not None else None)
@@ -974,12 +983,20 @@ class LeagueSimulator:
 
             home_strategy = home.coach_style
             away_strategy = away.coach_style
-            if home.name == user_team_name and not use_user_coach:
+            if home.name == user_team_name and use_user_strategy:
                 home_strategy = user_strategy
-            if away.name == user_team_name and not use_user_coach:
+            if away.name == user_team_name and use_user_strategy:
                 away_strategy = user_strategy
             home_off_bonus, home_def_bonus, home_injury_mult = self._coach_modifiers(home, home_strategy, away)
             away_off_bonus, away_def_bonus, away_injury_mult = self._coach_modifiers(away, away_strategy, home)
+            if home.name == user_team_name:
+                position_penalty = home.lineup_position_penalty()
+                home_off_bonus -= position_penalty * 0.45
+                home_def_bonus -= position_penalty * 0.50
+            if away.name == user_team_name:
+                position_penalty = away.lineup_position_penalty()
+                away_off_bonus -= position_penalty * 0.45
+                away_def_bonus -= position_penalty * 0.50
             home_sched_bonus, home_sched_injury = self._schedule_context_modifiers(
                 home, away, played_yesterday, is_away=False
             )
