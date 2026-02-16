@@ -530,6 +530,26 @@ export default function App() {
     return `Season ${meta.season} Day ${meta.day}/${meta.total_days}${meta.in_playoffs ? " | Playoffs" : ""}`;
   }, [meta, mainNav, scoreBoard]);
 
+  const teamLeaders = useMemo(() => {
+    const defs = [
+      { key: "points", label: "Points", pick: (p: PlayerRow) => p.p, fmt: (v: number) => `${v}` },
+      { key: "goals", label: "Goals", pick: (p: PlayerRow) => p.g, fmt: (v: number) => `${v}` },
+      { key: "assists", label: "Assists", pick: (p: PlayerRow) => p.a, fmt: (v: number) => `${v}` },
+      { key: "pim", label: "PIM", pick: (p: PlayerRow) => p.pim, fmt: (v: number) => `${v}` },
+      { key: "plusminus", label: "+/-", pick: (p: PlayerRow) => p.plus_minus, fmt: (v: number) => (v > 0 ? `+${v}` : `${v}`) },
+    ] as const;
+
+    return defs.map((d) => {
+      const best = [...players].sort((a, b) => d.pick(b) - d.pick(a) || b.p - a.p || b.g - a.g || a.name.localeCompare(b.name))[0] ?? null;
+      return {
+        key: d.key,
+        label: d.label,
+        player: best,
+        value: best ? d.fmt(d.pick(best)) : "-",
+      };
+    });
+  }, [players]);
+
   function trendArrow(trend?: string): string {
     if (trend === "Rising") return "▲";
     if (trend === "Falling") return "▼";
@@ -1093,15 +1113,31 @@ export default function App() {
           <div className="section-head">
             <h2>{meta?.user_team ?? "My Team"} Stats</h2>
           </div>
+          <h3>Team Leaders</h3>
+          <div className="team-leaders-strip">
+            {teamLeaders.map((leader) => (
+              <div
+                key={`tl-${leader.key}`}
+                className={`team-leader-card ${leader.player ? "row-clickable" : ""}`}
+                onClick={() => {
+                  if (leader.player) void openPlayerCareer(leader.player.team, leader.player.name);
+                }}
+              >
+                <div className="muted small">{leader.label}</div>
+                <div className="team-leader-name">{leader.player?.name ?? "-"}</div>
+                <div className="team-leader-value">{leader.value}</div>
+              </div>
+            ))}
+          </div>
           <div className="split">
-            <div><h3>Skaters</h3><table><thead><tr><th>Player</th><th>Pos</th><th>GP</th><th>G</th><th>A</th><th>P</th><th>+/-</th><th>PIM</th><th>TOI/G</th><th>PPG</th><th>PPA</th><th>SHG</th><th>SHA</th><th>S</th><th>S%</th><th>Out</th></tr></thead><tbody>
+            <div><h3>Skaters</h3><table className="banded"><thead><tr><th>Player</th><th>Pos</th><th>GP</th><th>G</th><th>A</th><th>P</th><th>+/-</th><th>PIM</th><th>TOI/G</th><th>PPG</th><th>PPA</th><th>SHG</th><th>SHA</th><th>S</th><th>S%</th><th>Out</th></tr></thead><tbody>
               {players.map((p) => (
                 <tr key={`${p.team}-${p.name}`} className="row-clickable" onClick={() => void openPlayerCareer(p.team, p.name)}>
                   <td>{p.injured ? <span className="neg">IR </span> : null}{p.name}</td><td>{p.position}</td><td>{p.gp}</td><td>{p.g}</td><td>{p.a}</td><td>{p.p}</td><td>{p.plus_minus}</td><td>{p.pim}</td><td>{p.toi_g.toFixed(1)}</td><td>{p.ppg}</td><td>{p.ppa}</td><td>{p.shg}</td><td>{p.sha}</td><td>{p.shots}</td><td>{p.shot_pct.toFixed(1)}</td><td>{p.injured ? <span className="neg">{p.injured_games_remaining ?? 0}</span> : "-"}</td>
                 </tr>
               ))}
             </tbody></table></div>
-            <div><h3>Goalies</h3><table><thead><tr><th>Goalie</th><th>GP</th><th>W</th><th>L</th><th>OTL</th><th>GAA</th><th>SV%</th><th>Out</th></tr></thead><tbody>
+            <div><h3>Goalies</h3><table className="banded"><thead><tr><th>Goalie</th><th>GP</th><th>W</th><th>L</th><th>OTL</th><th>GAA</th><th>SV%</th><th>Out</th></tr></thead><tbody>
               {goalies.map((g) => (
                 <tr key={`${g.team}-${g.name}`} className="row-clickable" onClick={() => void openPlayerCareer(g.team, g.name)}>
                   <td>{g.injured ? <span className="neg">IR </span> : null}{g.name}</td><td>{g.gp}</td><td>{g.w}</td><td>{g.l}</td><td>{g.otl}</td><td>{g.gaa.toFixed(2)}</td><td>{g.sv_pct.toFixed(3)}</td><td>{g.injured ? <span className="neg">{g.injured_games_remaining ?? 0}</span> : "-"}</td>
@@ -1122,7 +1158,7 @@ export default function App() {
             Object.entries(rosterData.groups).map(([groupName, rows]) => (
               <div key={`rg-${groupName}`}>
                 <h3>{groupName}</h3>
-                <table>
+                <table className="banded">
                   <thead>
                     <tr>
                       <th>Name</th><th>Age</th><th>HT</th><th>WT</th><th>Shot</th><th>Birth Place</th><th>Birthdate</th><th>Out</th>
