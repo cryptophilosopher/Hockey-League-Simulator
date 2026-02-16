@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import random
 from pathlib import Path
 from threading import Lock
@@ -52,11 +53,13 @@ class DraftNeedSelection(BaseModel):
 class SimService:
     def __init__(self) -> None:
         self._init_fresh_state()
+        self._load_runtime_state()
         self._lock = Lock()
 
     def _init_fresh_state(self) -> None:
         teams = build_default_teams()
         self.simulator = LeagueSimulator(teams=teams, games_per_matchup=2)
+        self.runtime_state_path = Path("api_runtime_state.json")
         self.user_team_name = teams[0].name if teams else ""
         self.user_strategy = "balanced"
         self.override_coach_for_lines = False
@@ -65,6 +68,50 @@ class SimService:
         self.daily_results: list[dict[str, Any]] = []
         self.news_feed: list[dict[str, Any]] = []
         self.coach_pool: list[dict[str, Any]] = self._build_initial_coach_pool()
+
+    def _load_runtime_state(self) -> None:
+        if not self.runtime_state_path.exists():
+            return
+        try:
+            raw = json.loads(self.runtime_state_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return
+        if not isinstance(raw, dict):
+            return
+
+        daily = raw.get("daily_results", [])
+        news = raw.get("news_feed", [])
+        if isinstance(daily, list):
+            self.daily_results = [row for row in daily if isinstance(row, dict)]
+        if isinstance(news, list):
+            self.news_feed = [row for row in news if isinstance(row, dict)]
+
+        team_name = raw.get("user_team_name")
+        if isinstance(team_name, str) and team_name:
+            self.user_team_name = team_name
+        strategy = raw.get("user_strategy")
+        if isinstance(strategy, str) and strategy:
+            self.user_strategy = strategy.lower()
+        mode = raw.get("game_mode")
+        if isinstance(mode, str) and mode in {"gm", "coach", "both"}:
+            self.game_mode = mode
+        self.override_coach_for_lines = bool(raw.get("override_coach_for_lines", self.override_coach_for_lines))
+        self.override_coach_for_strategy = bool(raw.get("override_coach_for_strategy", self.override_coach_for_strategy))
+
+    def _save_runtime_state(self) -> None:
+        payload = {
+            "user_team_name": self.user_team_name,
+            "user_strategy": self.user_strategy,
+            "override_coach_for_lines": self.override_coach_for_lines,
+            "override_coach_for_strategy": self.override_coach_for_strategy,
+            "game_mode": self.game_mode,
+            "daily_results": self.daily_results[-600:],
+            "news_feed": self.news_feed[:250],
+        }
+        try:
+            self.runtime_state_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        except OSError:
+            pass
 
     def _add_news(
         self,
@@ -85,6 +132,7 @@ class SimService:
         }
         self.news_feed.insert(0, row)
         self.news_feed = self.news_feed[:250]
+        self._save_runtime_state()
 
     def _injury_news_from_results(self, day_num: int, results: list[GameResult]) -> None:
         for result in results:
@@ -967,6 +1015,7 @@ class SimService:
             "w": player.goalie_wins,
             "l": player.goalie_losses,
             "otl": player.goalie_ot_losses,
+            "so": player.goalie_shutouts,
             "gaa": round(player.gaa, 2),
             "sv_pct": round(player.save_pct, 3),
             "injured": player.is_injured,
@@ -1316,6 +1365,7 @@ class SimService:
             "goalie_w": player.goalie_wins,
             "goalie_l": player.goalie_losses,
             "goalie_otl": player.goalie_ot_losses,
+            "goalie_so": player.goalie_shutouts,
             "gaa": round(player.gaa, 2),
             "sv_pct": round(player.save_pct, 3),
             "is_current": True,
@@ -1833,6 +1883,7 @@ class SimService:
                 }
             )
             gm_moves = self._cpu_gm_review(day=day_num, phase="regular")
+            self._save_runtime_state()
             return {
                 "phase": "regular",
                 "season": self.simulator.season_number,
@@ -1869,6 +1920,7 @@ class SimService:
                     "games": serialized,
                 }
             )
+            self._save_runtime_state()
             return {
                 "phase": "playoffs",
                 "day": day_no,
@@ -1885,6 +1937,7 @@ class SimService:
         drafted_details = offseason.get("drafted_details", {})
         if isinstance(drafted_details, dict):
             self._draft_news_from_offseason(completed_season=completed, drafted_details=drafted_details)
+        self._save_runtime_state()
         return {
             "phase": "offseason",
             "completed_season": offseason.get("completed_season"),
@@ -2157,6 +2210,10 @@ class SimService:
         temp = LeagueSimulator(teams=build_default_teams(), games_per_matchup=2)
         temp.reset_persistent_history()
         self._init_fresh_state()
+        try:
+            self.runtime_state_path.unlink(missing_ok=True)
+        except OSError:
+            pass
         return self.meta()
 
     def coach_candidates(self) -> list[dict[str, Any]]:
@@ -2191,6 +2248,7 @@ class SimService:
         if normalized not in {"gm", "coach", "both"}:
             raise HTTPException(status_code=400, detail="Unknown game mode")
         self.game_mode = normalized
+        self._save_runtime_state()
         return {
             "ok": True,
             "game_mode": self.game_mode,
@@ -2205,6 +2263,7 @@ class SimService:
     ) -> dict[str, Any]:
         self.override_coach_for_lines = bool(override_coach_for_lines)
         self.override_coach_for_strategy = bool(override_coach_for_strategy)
+        self._save_runtime_state()
         return {
             "ok": True,
             "override_coach_for_lines": self.override_coach_for_lines,
@@ -2248,6 +2307,7 @@ def set_user_team(payload: TeamSelection) -> dict[str, Any]:
         if team is None:
             raise HTTPException(status_code=404, detail="Team not found")
         service.user_team_name = team.name
+        service._save_runtime_state()
         return {"ok": True, "user_team": service.user_team_name}
 
 
@@ -2260,6 +2320,7 @@ def set_strategy(payload: StrategySelection) -> dict[str, Any]:
         service.user_strategy = strategy
         if payload.override_coach_for_strategy is not None:
             service.override_coach_for_strategy = bool(payload.override_coach_for_strategy)
+        service._save_runtime_state()
         return {
             "ok": True,
             "strategy": service.user_strategy,
