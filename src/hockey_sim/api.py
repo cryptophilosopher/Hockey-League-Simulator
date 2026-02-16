@@ -469,6 +469,41 @@ class SimService:
         base = 127397
         return chr(base + ord(code[0])) + chr(base + ord(code[1]))
 
+    def _player_bio_row(self, player: Player) -> dict[str, Any]:
+        rng = random.Random(f"bio:{player.player_id}")
+        if player.position in GOALIE_POSITIONS:
+            height_inches = rng.randint(72, 78)
+            weight = rng.randint(180, 235)
+        elif player.position in {"C", "LW", "RW"}:
+            height_inches = rng.randint(68, 77)
+            weight = rng.randint(165, 225)
+        else:
+            height_inches = rng.randint(70, 79)
+            weight = rng.randint(175, 240)
+        feet = height_inches // 12
+        inches = height_inches % 12
+        shot = "L" if rng.random() < 0.68 else "R"
+        month = rng.randint(1, 12)
+        day = rng.randint(1, 28)
+        year = max(1965, 2026 - int(player.age))
+        country = str(player.birth_country or "Canada")
+        country_code = str(player.birth_country_code or "CA").upper()
+        return {
+            "team": player.team_name,
+            "name": player.name,
+            "position": player.position,
+            "age": player.age,
+            "height": f"{feet}' {inches}\"",
+            "weight_lbs": weight,
+            "shot": shot,
+            "birth_place": f"{country} ({country_code})",
+            "birthdate": f"{month:02d}/{day:02d}/{str(year)[-2:]}",
+            "country": country,
+            "country_code": country_code,
+            "injured": player.is_injured,
+            "injured_games_remaining": player.injured_games_remaining,
+        }
+
     def _team_logo_path(self, team_name: str):
         base_assets = Path(__file__).resolve().parents[2] / "assets"
         slug = self._team_slug(team_name)
@@ -1000,6 +1035,13 @@ class SimService:
             )
 
         candidates = [_player_row(p) for p in sorted(team.active_players(), key=lambda p: (p.position, p.name))]
+        assigned_names = {str(team.line_assignments.get(slot, "")).strip() for slot in ALL_LINE_SLOTS}
+        assigned_names.discard("")
+        extra_players = [
+            _player_row(p)
+            for p in sorted(team.roster, key=lambda x: (x.position, x.name))
+            if (not p.is_injured) and (p.name not in assigned_names)
+        ]
         injuries = [
             {
                 "name": p.name,
@@ -1025,6 +1067,7 @@ class SimService:
             "assignments": {slot: str(team.line_assignments.get(slot, "")) for slot in ALL_LINE_SLOTS},
             "units": units,
             "candidates": candidates,
+            "extra_players": extra_players,
             "injuries": injuries,
         }
 
@@ -1198,6 +1241,35 @@ class SimService:
                 }
             )
         return rows
+
+    def roster(self, team_name: str | None = None) -> dict[str, Any]:
+        chosen = (team_name or self.user_team_name).strip()
+        if not chosen:
+            raise HTTPException(status_code=400, detail="No team selected")
+        team = self.simulator.get_team(chosen)
+        if team is None:
+            raise HTTPException(status_code=404, detail="Team not found")
+
+        groups: dict[str, list[dict[str, Any]]] = {
+            "Centers": [],
+            "Left Wings": [],
+            "Right Wings": [],
+            "Defensemen": [],
+            "Goalies": [],
+        }
+        for p in sorted(team.roster, key=lambda x: (x.position, x.name)):
+            row = self._player_bio_row(p)
+            if p.position == "C":
+                groups["Centers"].append(row)
+            elif p.position == "LW":
+                groups["Left Wings"].append(row)
+            elif p.position == "RW":
+                groups["Right Wings"].append(row)
+            elif p.position == "D":
+                groups["Defensemen"].append(row)
+            else:
+                groups["Goalies"].append(row)
+        return {"team": team.name, "groups": groups}
 
     def set_draft_focus(self, team_name: str | None, focus: str) -> dict[str, Any]:
         chosen = (team_name or self.user_team_name).strip()
@@ -1510,6 +1582,90 @@ class SimService:
             ]
 
         return (top("p"), top("g"), top("a"), top("w"))
+
+    def _season_team_points_leaders(self, season_no: int) -> dict[str, tuple[str, int]]:
+        leaders: dict[str, tuple[str, int]] = {}
+        for entries in self.simulator.career_history.values():
+            if not isinstance(entries, list):
+                continue
+            for row in entries:
+                if not isinstance(row, dict):
+                    continue
+                if int(row.get("season", 0)) != int(season_no):
+                    continue
+                team_name = str(row.get("team", "")).strip()
+                if not team_name:
+                    continue
+                points = int(row.get("p", 0))
+                name = str(row.get("name", "")).strip()
+                if not name:
+                    continue
+                current = leaders.get(team_name)
+                if current is None or points > current[1] or (points == current[1] and name < current[0]):
+                    leaders[team_name] = (name, points)
+        return leaders
+
+    def cup_history(self) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for season in sorted(
+            [s for s in self.simulator.season_history if isinstance(s, dict)],
+            key=lambda s: int(s.get("season", 0)),
+            reverse=True,
+        ):
+            season_no = int(season.get("season", 0))
+            winner = str(season.get("champion", "")).strip()
+            playoffs = season.get("playoffs", {})
+            runner_up = ""
+            if isinstance(playoffs, dict):
+                rounds = playoffs.get("rounds", [])
+                if isinstance(rounds, list):
+                    cup_round = next(
+                        (r for r in rounds if isinstance(r, dict) and str(r.get("name", "")).strip() == "Cup Final"),
+                        None,
+                    )
+                    if isinstance(cup_round, dict):
+                        series_rows = cup_round.get("series", [])
+                        if isinstance(series_rows, list) and series_rows:
+                            s0 = series_rows[0] if isinstance(series_rows[0], dict) else {}
+                            runner_up = str(s0.get("loser", "")).strip()
+                            if not runner_up:
+                                high = str(s0.get("higher_seed", "")).strip()
+                                low = str(s0.get("lower_seed", "")).strip()
+                                if winner and high and low:
+                                    runner_up = low if winner == high else high
+
+            coaches = season.get("coaches", [])
+            winner_coach = "-"
+            runner_coach = "-"
+            if isinstance(coaches, list):
+                w_row = next((r for r in coaches if isinstance(r, dict) and str(r.get("team", "")) == winner), None)
+                if isinstance(w_row, dict):
+                    winner_coach = str(w_row.get("coach", "-"))
+                r_row = next((r for r in coaches if isinstance(r, dict) and str(r.get("team", "")) == runner_up), None)
+                if isinstance(r_row, dict):
+                    runner_coach = str(r_row.get("coach", "-"))
+
+            team_leaders = self._season_team_points_leaders(season_no)
+            winner_captain = team_leaders.get(winner, ("-", 0))[0] if winner else "-"
+            runner_captain = team_leaders.get(runner_up, ("-", 0))[0] if runner_up else "-"
+            mvp_name, mvp_pts = team_leaders.get(winner, ("-", 0)) if winner else ("-", 0)
+            mvp_label = f"{mvp_name} ({mvp_pts} pts)" if mvp_name != "-" else "-"
+
+            rows.append(
+                {
+                    "season": season_no,
+                    "winner": winner,
+                    "winner_logo_url": f"/api/team-logo/{self._team_slug(winner)}" if winner else "",
+                    "winner_captain": winner_captain,
+                    "winner_coach": winner_coach,
+                    "runner_up": runner_up,
+                    "runner_logo_url": f"/api/team-logo/{self._team_slug(runner_up)}" if runner_up else "",
+                    "runner_captain": runner_captain,
+                    "runner_coach": runner_coach,
+                    "mvp": mvp_label,
+                }
+            )
+        return rows
 
     def franchise(self, team_name: str) -> dict[str, Any]:
         team = self.simulator.get_team(team_name)
@@ -2165,6 +2321,12 @@ def minor_league(team: str | None = None) -> list[dict[str, Any]]:
         return service.minor_league(team_name=team)
 
 
+@app.get("/api/roster")
+def roster(team: str | None = None) -> dict[str, Any]:
+    with service._lock:
+        return service.roster(team_name=team)
+
+
 @app.get("/api/lines")
 def lines(team: str | None = None) -> dict[str, Any]:
     with service._lock:
@@ -2193,6 +2355,12 @@ def playoffs() -> dict[str, Any]:
 def franchise(team: str) -> dict[str, Any]:
     with service._lock:
         return service.franchise(team_name=team)
+
+
+@app.get("/api/cup-history")
+def cup_history() -> list[dict[str, Any]]:
+    with service._lock:
+        return service.cup_history()
 
 
 @app.get("/api/day-board")

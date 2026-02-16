@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
-type MainNavKey = "home" | "scores" | "team_stats" | "league_stats" | "standings" | "lines" | "minors" | "franchise";
+type MainNavKey = "home" | "scores" | "team_stats" | "league_stats" | "standings" | "cup_history" | "roster" | "lines" | "minors" | "franchise";
 type StandingsTab = "standings" | "wildcard" | "playoffs";
 
 type Meta = {
@@ -422,6 +422,7 @@ type LinesPayload = {
     G: { name: string; pos: string; flag?: string; out_of_position?: boolean } | null;
   }>;
   candidates: Array<{ name: string; pos: string; flag?: string }>;
+  extra_players?: Array<{ name: string; pos: string; flag?: string }>;
   injuries?: Array<{ name: string; pos: string; flag?: string; games_remaining: number }>;
 };
 
@@ -438,6 +439,38 @@ type MinorPlayerRow = {
   overall: number;
   injured?: boolean;
   injured_games_remaining?: number;
+};
+
+type RosterBioRow = {
+  team: string;
+  name: string;
+  position: string;
+  age: number;
+  height: string;
+  weight_lbs: number;
+  shot: string;
+  birth_place: string;
+  birthdate: string;
+  injured?: boolean;
+  injured_games_remaining?: number;
+};
+
+type RosterPayload = {
+  team: string;
+  groups: Record<string, RosterBioRow[]>;
+};
+
+type CupHistoryRow = {
+  season: number;
+  winner: string;
+  winner_logo_url?: string;
+  winner_captain: string;
+  winner_coach: string;
+  runner_up: string;
+  runner_logo_url?: string;
+  runner_captain: string;
+  runner_coach: string;
+  mvp: string;
 };
 
 const API_BASE = "http://127.0.0.1:8000/api";
@@ -476,6 +509,8 @@ export default function App() {
   const [linesData, setLinesData] = useState<LinesPayload | null>(null);
   const [lineAssignments, setLineAssignments] = useState<Record<string, string>>({});
   const [minorPlayers, setMinorPlayers] = useState<MinorPlayerRow[]>([]);
+  const [rosterData, setRosterData] = useState<RosterPayload | null>(null);
+  const [cupHistoryRows, setCupHistoryRows] = useState<CupHistoryRow[]>([]);
   const [gameModeLocal, setGameModeLocal] = useState<"gm" | "coach" | "both">("gm");
   const [showCoachDetails, setShowCoachDetails] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -575,6 +610,16 @@ export default function App() {
     setMinorPlayers(await fetchJson<MinorPlayerRow[]>(`/minor-league?team=${encodeURIComponent(chosen)}`));
   }
 
+  async function loadRoster(teamName?: string) {
+    const chosen = teamName ?? meta?.user_team;
+    if (!chosen) return;
+    setRosterData(await fetchJson<RosterPayload>(`/roster?team=${encodeURIComponent(chosen)}`));
+  }
+
+  async function loadCupHistory() {
+    setCupHistoryRows(await fetchJson<CupHistoryRow[]>("/cup-history"));
+  }
+
   async function loadDayBoards(sDay = scoreDay) {
     const scores = await fetchJson<DayBoard>(`/day-board?day=${sDay}`);
     setScoreBoard(scores);
@@ -594,7 +639,9 @@ export default function App() {
         loadPlayoffs(),
         loadFranchise(),
         loadHome(),
+        (mainNav === "cup_history" ? loadCupHistory() : Promise.resolve()),
         loadDayBoards(scoreTarget),
+        (mainNav === "roster" ? loadRoster(m.user_team) : Promise.resolve()),
         (mainNav === "lines" ? loadLines() : Promise.resolve()),
         (mainNav === "minors" ? loadMinorLeague(m.user_team) : Promise.resolve()),
       ]);
@@ -824,6 +871,8 @@ export default function App() {
           ["team_stats", "Team Stats"],
           ["league_stats", "League Stats"],
           ["standings", "Standings"],
+          ["cup_history", "Cup History"],
+          ["roster", "Roster"],
           ["lines", "Lines"],
           ["minors", "Minor League"],
           ["franchise", "Franchise"],
@@ -835,6 +884,8 @@ export default function App() {
               if (key === "scores") setScoreDay(0);
               if (key === "team_stats") void loadLeaders("team");
               if (key === "league_stats") void loadLeaders("league");
+              if (key === "cup_history") void loadCupHistory();
+              if (key === "roster") void loadRoster();
               if (key === "lines") void loadLines();
               if (key === "minors") void loadMinorLeague();
               setMainNav(key as MainNavKey);
@@ -943,6 +994,33 @@ export default function App() {
         </>
       ) : null}
 
+      {mainNav === "cup_history" ? (
+        <section className="card">
+          <h2>Cup Champion History</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Season</th><th>Winner</th><th>Captain</th><th>Coach</th><th>Runner-Up</th><th>Captain</th><th>Coach</th><th>MVP</th>
+              </tr>
+            </thead>
+            <tbody>
+              {cupHistoryRows.map((r) => (
+                <tr key={`cup-${r.season}`}>
+                  <td>{r.season}</td>
+                  <td className="team-cell">{r.winner_logo_url ? <img className="table-logo" src={logoUrl(r.winner_logo_url)} alt={r.winner} /> : null}<span>{r.winner}</span></td>
+                  <td>{r.winner_captain}</td>
+                  <td>{r.winner_coach}</td>
+                  <td className="team-cell">{r.runner_logo_url ? <img className="table-logo" src={logoUrl(r.runner_logo_url)} alt={r.runner_up} /> : null}<span>{r.runner_up}</span></td>
+                  <td>{r.runner_captain}</td>
+                  <td>{r.runner_coach}</td>
+                  <td>{r.mvp}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      ) : null}
+
       {mainNav === "league_stats" ? (
         <section className="card leaders">
           <div className="section-head">
@@ -1017,18 +1095,54 @@ export default function App() {
             <div><h3>Skaters</h3><table><thead><tr><th>Player</th><th>Pos</th><th>GP</th><th>G</th><th>A</th><th>P</th><th>+/-</th><th>PIM</th><th>TOI/G</th><th>PPG</th><th>PPA</th><th>SHG</th><th>SHA</th><th>S</th><th>S%</th><th>Out</th></tr></thead><tbody>
               {players.map((p) => (
                 <tr key={`${p.team}-${p.name}`} className="row-clickable" onClick={() => void openPlayerCareer(p.team, p.name)}>
-                  <td>{p.injured ? <span className="neg">IR </span> : null}{p.flag ? `${p.flag} ` : ""}{p.name}</td><td>{p.position}</td><td>{p.gp}</td><td>{p.g}</td><td>{p.a}</td><td>{p.p}</td><td>{p.plus_minus}</td><td>{p.pim}</td><td>{p.toi_g.toFixed(1)}</td><td>{p.ppg}</td><td>{p.ppa}</td><td>{p.shg}</td><td>{p.sha}</td><td>{p.shots}</td><td>{p.shot_pct.toFixed(1)}</td><td>{p.injured ? <span className="neg">{p.injured_games_remaining ?? 0}</span> : "-"}</td>
+                  <td>{p.injured ? <span className="neg">IR </span> : null}{p.name}</td><td>{p.position}</td><td>{p.gp}</td><td>{p.g}</td><td>{p.a}</td><td>{p.p}</td><td>{p.plus_minus}</td><td>{p.pim}</td><td>{p.toi_g.toFixed(1)}</td><td>{p.ppg}</td><td>{p.ppa}</td><td>{p.shg}</td><td>{p.sha}</td><td>{p.shots}</td><td>{p.shot_pct.toFixed(1)}</td><td>{p.injured ? <span className="neg">{p.injured_games_remaining ?? 0}</span> : "-"}</td>
                 </tr>
               ))}
             </tbody></table></div>
             <div><h3>Goalies</h3><table><thead><tr><th>Goalie</th><th>GP</th><th>W</th><th>L</th><th>OTL</th><th>GAA</th><th>SV%</th><th>Out</th></tr></thead><tbody>
               {goalies.map((g) => (
                 <tr key={`${g.team}-${g.name}`} className="row-clickable" onClick={() => void openPlayerCareer(g.team, g.name)}>
-                  <td>{g.injured ? <span className="neg">IR </span> : null}{g.flag ? `${g.flag} ` : ""}{g.name}</td><td>{g.gp}</td><td>{g.w}</td><td>{g.l}</td><td>{g.otl}</td><td>{g.gaa.toFixed(2)}</td><td>{g.sv_pct.toFixed(3)}</td><td>{g.injured ? <span className="neg">{g.injured_games_remaining ?? 0}</span> : "-"}</td>
+                  <td>{g.injured ? <span className="neg">IR </span> : null}{g.name}</td><td>{g.gp}</td><td>{g.w}</td><td>{g.l}</td><td>{g.otl}</td><td>{g.gaa.toFixed(2)}</td><td>{g.sv_pct.toFixed(3)}</td><td>{g.injured ? <span className="neg">{g.injured_games_remaining ?? 0}</span> : "-"}</td>
                 </tr>
               ))}
             </tbody></table></div>
           </div>
+        </section>
+      ) : null}
+
+      {mainNav === "roster" ? (
+        <section className="card">
+          <h2>{rosterData?.team ?? (meta?.user_team ?? "Team")} Roster</h2>
+          {rosterData ? (
+            Object.entries(rosterData.groups).map(([groupName, rows]) => (
+              <div key={`rg-${groupName}`}>
+                <h3>{groupName}</h3>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Name</th><th>Age</th><th>HT</th><th>WT</th><th>Shot</th><th>Birth Place</th><th>Birthdate</th><th>Out</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((r) => (
+                      <tr key={`r-${groupName}-${r.name}`} className="row-clickable" onClick={() => void openPlayerCareer(r.team, r.name)}>
+                        <td>{r.name}</td>
+                        <td>{r.age}</td>
+                        <td>{r.height}</td>
+                        <td>{r.weight_lbs} lbs</td>
+                        <td>{r.shot}</td>
+                        <td>{r.birth_place}</td>
+                        <td>{r.birthdate}</td>
+                        <td>{r.injured ? <span className="neg">{r.injured_games_remaining ?? 0}</span> : "-"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ))
+          ) : (
+            <p>Loading roster...</p>
+          )}
         </section>
       ) : null}
 
@@ -1111,7 +1225,7 @@ export default function App() {
                     if (!item) return "-";
                       return (
                         <span className={item.out_of_position ? "neg" : ""}>
-                          {item.flag ? `${item.flag} ` : ""}{item.name} ({item.pos})
+                          {item.name} ({item.pos})
                         </span>
                       );
                   }
@@ -1123,7 +1237,7 @@ export default function App() {
                       <option value="">-</option>
                       {(linesData?.candidates ?? []).map((c) => (
                         <option key={`${id}-${c.name}`} value={c.name}>
-                          {c.flag ? `${c.flag} ` : ""}{c.name} ({c.pos})
+                          {c.name} ({c.pos})
                         </option>
                       ))}
                     </select>
@@ -1143,6 +1257,24 @@ export default function App() {
               })}
             </tbody>
           </table>
+          <h3>Extra Players</h3>
+          {(linesData?.extra_players ?? []).length > 0 ? (
+            <table>
+              <thead>
+                <tr><th>Player</th><th>Pos</th></tr>
+              </thead>
+              <tbody>
+                {(linesData?.extra_players ?? []).map((p) => (
+                  <tr key={`extra-${p.name}`}>
+                    <td>{p.name}</td>
+                    <td>{p.pos}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="muted">No extra healthy players available.</p>
+          )}
           <h3>Injury Report</h3>
           {(linesData?.injuries ?? []).length > 0 ? (
             <table>
@@ -1152,7 +1284,7 @@ export default function App() {
               <tbody>
                 {(linesData?.injuries ?? []).map((inj) => (
                   <tr key={`inj-${inj.name}`}>
-                    <td>{inj.flag ? `${inj.flag} ` : ""}{inj.name}</td>
+                    <td>{inj.name}</td>
                     <td>{inj.pos}</td>
                     <td>{inj.games_remaining}</td>
                   </tr>
@@ -1178,7 +1310,7 @@ export default function App() {
             <tbody>
               {minorPlayers.map((p) => (
                 <tr key={`minor-${p.team}-${p.name}`} className="row-clickable" onClick={() => void openPlayerCareer(p.team, p.name)}>
-                  <td>{p.injured ? <span className="neg">IR </span> : null}{p.flag ? `${p.flag} ` : ""}{p.name}</td>
+                  <td>{p.injured ? <span className="neg">IR </span> : null}{p.name}</td>
                   <td>{p.position}</td>
                   <td>{p.age}</td>
                   <td>{p.tier}</td>
@@ -1212,7 +1344,7 @@ export default function App() {
                     <tbody>
                       {(franchise.draft_picks ?? []).slice(0, 30).map((d, idx) => (
                         <tr key={`d-${idx}-${d.season}-${d.name}`}>
-                          <td>{d.season}</td><td>{d.flag ? `${d.flag} ` : ""}{d.name}</td><td>{d.position}</td><td>R{d.round} #{d.overall}</td>
+                          <td>{d.season}</td><td>{d.name}</td><td>{d.position}</td><td>R{d.round} #{d.overall}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -1415,7 +1547,7 @@ export default function App() {
       {playerCareer ? (
         <div className="modal-overlay" onClick={() => setPlayerCareer(null)}>
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-            <h3>{playerCareer.player.flag ? `${playerCareer.player.flag} ` : ""}{playerCareer.player.name}</h3>
+            <h3>{playerCareer.player.name}</h3>
             <p className="muted">
               Position: {playerCareer.player.position} | Team: {playerCareer.player.team} | Country: {playerCareer.player.country ?? "-"} | Draft: {playerCareer.player.draft_label ?? "Undrafted"}
             </p>
@@ -1636,7 +1768,7 @@ function LeaderBlock<T extends { name: string; team: string; flag?: string }>({
         {topRows.map((row, idx) => (
           <div key={`${row.team}-${row.name}-${title}`} className="leader-row row-clickable" onClick={() => onPick(row)}>
             <span className="leader-rank">{rankAt(idx)}</span>
-            <span className="leader-player">{row.flag ? `${row.flag} ` : ""}{row.name} <small>{row.team.slice(0, 3).toUpperCase()}</small></span>
+            <span className="leader-player">{row.name} <small>{row.team.slice(0, 3).toUpperCase()}</small></span>
             <span className="leader-value">{formatValue(getValue(row))}</span>
           </div>
         ))}

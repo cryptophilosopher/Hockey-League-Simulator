@@ -129,6 +129,7 @@ class LeagueSimulator:
         self._name_generator.reserve([p.name for t in self.teams for p in [*t.roster, *t.minor_roster]])
         self.season_number = int(loaded_state.get("season_number", 1)) if loaded_state else 1
         self._ensure_minor_roster_depth()
+        self._migrate_legacy_birth_countries()
         self._ensure_team_coaches()
         self.prime_age_min = min(prime_age_min, prime_age_max)
         self.prime_age_max = max(prime_age_min, prime_age_max)
@@ -315,13 +316,15 @@ class LeagueSimulator:
 
     def _deserialize_player(self, raw: dict[str, Any]) -> Player:
         player_id = str(raw.get("player_id") or f"legacy_{raw.get('name', '')}_{self._rng.random():.9f}")
+        has_country = raw.get("birth_country") is not None or raw.get("birth_country_code") is not None
+        sampled_country, sampled_code = self._sample_birth_country()
         return Player(
             player_id=player_id,
             team_name=str(raw.get("team_name", "")),
             name=str(raw.get("name", "")),
             position=str(raw.get("position", "C")),
-            birth_country=str(raw.get("birth_country", "Canada")),
-            birth_country_code=str(raw.get("birth_country_code", "CA")).upper(),
+            birth_country=(str(raw.get("birth_country", sampled_country)) if has_country else sampled_country),
+            birth_country_code=(str(raw.get("birth_country_code", sampled_code)).upper() if has_country else sampled_code),
             shooting=float(raw.get("shooting", 2.5)),
             playmaking=float(raw.get("playmaking", 2.5)),
             defense=float(raw.get("defense", 2.5)),
@@ -503,6 +506,19 @@ class LeagueSimulator:
                 if depth_player.seasons_to_nhl <= 0:
                     depth_player.seasons_to_nhl = 1
                 team.minor_roster.append(depth_player)
+
+    def _migrate_legacy_birth_countries(self) -> None:
+        for team in self.teams:
+            org_players = [*team.roster, *team.minor_roster]
+            if len(org_players) < 10:
+                continue
+            valid_codes = [str(p.birth_country_code or "").upper() for p in org_players if str(p.birth_country_code or "").strip()]
+            unique_codes = {c for c in valid_codes if len(c) == 2}
+            if unique_codes == {"CA"}:
+                for player in org_players:
+                    country, code = self._sample_birth_country()
+                    player.birth_country = country
+                    player.birth_country_code = code
 
     def _coach_matchup_preference(self, team: Team, opponent: Team) -> str:
         team_top = sorted([p.scoring_weight for p in team.active_skaters()], reverse=True)[:6]

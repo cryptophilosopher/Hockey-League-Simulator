@@ -21,13 +21,16 @@ def _single_round_days(teams: list[Team]) -> list[list[tuple[Team, Team]]]:
     half = len(rotating) // 2
     days: list[list[tuple[Team, Team]]] = []
 
-    for _ in range(rounds):
+    for round_idx in range(rounds):
         day_games: list[tuple[Team, Team]] = []
         for idx in range(half):
             home = rotating[idx]
             away = rotating[-(idx + 1)]
             if home is ghost or away is ghost:
                 continue
+            # Alternate site orientation by round to avoid long early home/away streaks.
+            if round_idx % 2 == 1:
+                home, away = away, home
             day_games.append((home, away))
         days.append(day_games)
 
