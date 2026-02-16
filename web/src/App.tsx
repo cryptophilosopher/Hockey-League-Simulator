@@ -457,6 +457,8 @@ type RosterBioRow = {
 
 type RosterPayload = {
   team: string;
+  captain?: string;
+  assistants?: string[];
   groups: Record<string, RosterBioRow[]>;
 };
 
@@ -1113,6 +1115,9 @@ export default function App() {
       {mainNav === "roster" ? (
         <section className="card">
           <h2>{rosterData?.team ?? (meta?.user_team ?? "Team")} Roster</h2>
+          <p className="muted">
+            Captain: {rosterData?.captain ?? "-"} | Assistants: {(rosterData?.assistants ?? []).length > 0 ? (rosterData?.assistants ?? []).join(", ") : "-"}
+          </p>
           {rosterData ? (
             Object.entries(rosterData.groups).map(([groupName, rows]) => (
               <div key={`rg-${groupName}`}>

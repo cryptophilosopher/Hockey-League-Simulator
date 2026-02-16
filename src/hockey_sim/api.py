@@ -1269,7 +1269,12 @@ class SimService:
                 groups["Defensemen"].append(row)
             else:
                 groups["Goalies"].append(row)
-        return {"team": team.name, "groups": groups}
+        return {
+            "team": team.name,
+            "captain": team.captain_name,
+            "assistants": list(team.assistant_names),
+            "groups": groups,
+        }
 
     def set_draft_focus(self, team_name: str | None, focus: str) -> dict[str, Any]:
         chosen = (team_name or self.user_team_name).strip()
@@ -1645,11 +1650,28 @@ class SimService:
                 if isinstance(r_row, dict):
                     runner_coach = str(r_row.get("coach", "-"))
 
-            team_leaders = self._season_team_points_leaders(season_no)
-            winner_captain = team_leaders.get(winner, ("-", 0))[0] if winner else "-"
-            runner_captain = team_leaders.get(runner_up, ("-", 0))[0] if runner_up else "-"
-            mvp_name, mvp_pts = team_leaders.get(winner, ("-", 0)) if winner else ("-", 0)
-            mvp_label = f"{mvp_name} ({mvp_pts} pts)" if mvp_name != "-" else "-"
+            leadership = season.get("leadership", [])
+            leader_map: dict[str, dict[str, Any]] = {}
+            if isinstance(leadership, list):
+                for row in leadership:
+                    if not isinstance(row, dict):
+                        continue
+                    tname = str(row.get("team", "")).strip()
+                    if tname:
+                        leader_map[tname] = row
+            winner_captain = str(leader_map.get(winner, {}).get("captain", "-")) if winner else "-"
+            runner_captain = str(leader_map.get(runner_up, {}).get("captain", "-")) if runner_up else "-"
+            playoffs_mvp = ""
+            if isinstance(playoffs, dict):
+                mvp_row = playoffs.get("mvp", {})
+                if isinstance(mvp_row, dict):
+                    mvp_name = str(mvp_row.get("name", "")).strip()
+                    mvp_summary = str(mvp_row.get("summary", "")).strip()
+                    if mvp_name and mvp_summary:
+                        playoffs_mvp = f"{mvp_name} - {mvp_summary}"
+                    elif mvp_name:
+                        playoffs_mvp = mvp_name
+            mvp_label = playoffs_mvp or "-"
 
             rows.append(
                 {

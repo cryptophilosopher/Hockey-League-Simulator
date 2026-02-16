@@ -131,6 +131,7 @@ class LeagueSimulator:
         self._ensure_minor_roster_depth()
         self._migrate_legacy_birth_countries()
         self._ensure_team_coaches()
+        self._ensure_team_leadership()
         self.prime_age_min = min(prime_age_min, prime_age_max)
         self.prime_age_max = max(prime_age_min, prime_age_max)
         self.history_path = Path(history_path or "season_history.json")
@@ -378,6 +379,8 @@ class LeagueSimulator:
             "coach_tenure_seasons": team.coach_tenure_seasons,
             "coach_changes_recent": team.coach_changes_recent,
             "coach_honeymoon_games_remaining": team.coach_honeymoon_games_remaining,
+            "captain_name": team.captain_name,
+            "assistant_names": list(team.assistant_names),
             "dressed_player_names": sorted(list(team.dressed_player_names)),
             "line_assignments": dict(team.line_assignments),
             "roster": [self._serialize_player(player) for player in team.roster],
@@ -431,6 +434,12 @@ class LeagueSimulator:
                     coach_tenure_seasons=int(raw_team.get("coach_tenure_seasons", 0)),
                     coach_changes_recent=float(raw_team.get("coach_changes_recent", 0.0)),
                     coach_honeymoon_games_remaining=int(raw_team.get("coach_honeymoon_games_remaining", 0)),
+                    captain_name=str(raw_team.get("captain_name", "")),
+                    assistant_names=(
+                        [str(x) for x in raw_team.get("assistant_names", []) if str(x).strip()]
+                        if isinstance(raw_team.get("assistant_names", []), list)
+                        else []
+                    ),
                 )
             )
         return teams
@@ -506,6 +515,33 @@ class LeagueSimulator:
                 if depth_player.seasons_to_nhl <= 0:
                     depth_player.seasons_to_nhl = 1
                 team.minor_roster.append(depth_player)
+
+    def _leadership_score(self, player: Player) -> float:
+        skater_score = player.shooting + player.playmaking + player.defense + player.physical + player.durability
+        age_bonus = min(8.0, max(0.0, (player.age - 21) * 0.7))
+        goalie_penalty = 4.0 if player.position in GOALIE_POSITIONS else 0.0
+        return skater_score + age_bonus - goalie_penalty
+
+    def _ensure_team_leadership(self) -> None:
+        for team in self.teams:
+            core = [p for p in team.roster if not p.is_injured]
+            if not core:
+                core = list(team.roster)
+            if not core:
+                team.captain_name = ""
+                team.assistant_names = []
+                continue
+            ranked = sorted(core, key=lambda p: (self._leadership_score(p), p.age, p.name), reverse=True)
+            current_names = {p.name for p in core}
+            captain_valid = team.captain_name in current_names
+            assistants_valid = [name for name in team.assistant_names if name in current_names and name != team.captain_name]
+            if not captain_valid:
+                team.captain_name = ranked[0].name
+            if len(assistants_valid) < 2:
+                picked = [p.name for p in ranked if p.name != team.captain_name]
+                team.assistant_names = [*assistants_valid, *[n for n in picked if n not in assistants_valid][: max(0, 2 - len(assistants_valid))]]
+            else:
+                team.assistant_names = assistants_valid[:2]
 
     def _migrate_legacy_birth_countries(self) -> None:
         for team in self.teams:
@@ -1332,6 +1368,7 @@ class LeagueSimulator:
 
     def _ensure_team_depth(self, team: Team) -> None:
         if not team.minor_roster:
+            self._ensure_team_leadership()
             return
 
         def _healthy_count(pool: list[Player], positions: set[str]) -> int:
@@ -1362,6 +1399,7 @@ class LeagueSimulator:
                 break
 
         team.set_default_lineup()
+        self._ensure_team_leadership()
 
     def _apply_injury_wear(self, player: Player) -> None:
         season_injuries = max(0, player.injuries)
@@ -1716,12 +1754,108 @@ class LeagueSimulator:
         pattern = [higher_seed, higher_seed, lower_seed, lower_seed, higher_seed, lower_seed, higher_seed]
         return pattern[min(game_number - 1, len(pattern) - 1)]
 
+    def _accumulate_playoff_game_stats(self, result: GameResult, tracker: dict[str, dict[str, object]]) -> None:
+        def ensure_player(player: Player) -> dict[str, object]:
+            row = tracker.get(player.player_id)
+            if row is None:
+                row = {
+                    "player_id": player.player_id,
+                    "name": player.name,
+                    "team": player.team_name,
+                    "position": player.position,
+                    "gp": 0,
+                    "g": 0,
+                    "a": 0,
+                    "p": 0,
+                    "goalie_gp": 0,
+                    "goalie_w": 0,
+                    "goalie_losses": 0,
+                    "goalie_shots": 0,
+                    "goalie_saves": 0,
+                    "goalie_ga": 0,
+                }
+                tracker[player.player_id] = row
+            return row
+
+        game_players: set[str] = set()
+        for events in (result.home_goal_events, result.away_goal_events):
+            for ev in events:
+                scorer_row = ensure_player(ev.scorer)
+                scorer_row["g"] = int(scorer_row["g"]) + 1
+                scorer_row["p"] = int(scorer_row["p"]) + 1
+                game_players.add(ev.scorer.player_id)
+                for helper in ev.assists:
+                    helper_row = ensure_player(helper)
+                    helper_row["a"] = int(helper_row["a"]) + 1
+                    helper_row["p"] = int(helper_row["p"]) + 1
+                    game_players.add(helper.player_id)
+        for pid in game_players:
+            tracker[pid]["gp"] = int(tracker[pid]["gp"]) + 1
+
+        home_win = result.home_goals > result.away_goals
+        away_win = result.away_goals > result.home_goals
+        if result.home_goalie is not None:
+            row = ensure_player(result.home_goalie)
+            row["goalie_gp"] = int(row["goalie_gp"]) + 1
+            row["goalie_w"] = int(row["goalie_w"]) + (1 if home_win else 0)
+            row["goalie_losses"] = int(row["goalie_losses"]) + (0 if home_win else 1)
+            row["goalie_shots"] = int(row["goalie_shots"]) + int(result.home_goalie_shots)
+            row["goalie_saves"] = int(row["goalie_saves"]) + int(result.home_goalie_saves)
+            row["goalie_ga"] = int(row["goalie_ga"]) + int(result.away_goals)
+        if result.away_goalie is not None:
+            row = ensure_player(result.away_goalie)
+            row["goalie_gp"] = int(row["goalie_gp"]) + 1
+            row["goalie_w"] = int(row["goalie_w"]) + (1 if away_win else 0)
+            row["goalie_losses"] = int(row["goalie_losses"]) + (0 if away_win else 1)
+            row["goalie_shots"] = int(row["goalie_shots"]) + int(result.away_goalie_shots)
+            row["goalie_saves"] = int(row["goalie_saves"]) + int(result.away_goalie_saves)
+            row["goalie_ga"] = int(row["goalie_ga"]) + int(result.home_goals)
+
+    def _select_playoff_mvp(self, champion: str, tracker: dict[str, dict[str, object]]) -> dict[str, object]:
+        champion_rows = [r for r in tracker.values() if str(r.get("team", "")) == champion]
+        if not champion_rows:
+            return {"name": "", "team": champion, "position": "", "summary": ""}
+
+        def score(row: dict[str, object]) -> float:
+            position = str(row.get("position", ""))
+            points = int(row.get("p", 0))
+            goals = int(row.get("g", 0))
+            gp = max(1, int(row.get("gp", 0)))
+            base = points * 6.0 + goals * 2.2 + (points / gp) * 2.0
+            if position in GOALIE_POSITIONS:
+                ggp = max(1, int(row.get("goalie_gp", 0)))
+                wins = int(row.get("goalie_w", 0))
+                shots = max(1, int(row.get("goalie_shots", 0)))
+                saves = int(row.get("goalie_saves", 0))
+                ga = int(row.get("goalie_ga", 0))
+                sv = saves / shots
+                gaa = ga / ggp
+                base = wins * 7.5 + sv * 75.0 - gaa * 1.8 + ggp * 0.8
+            return base
+
+        best = max(champion_rows, key=lambda r: (score(r), int(r.get("p", 0)), int(r.get("goalie_w", 0))))
+        pos = str(best.get("position", ""))
+        if pos in GOALIE_POSITIONS:
+            shots = max(1, int(best.get("goalie_shots", 0)))
+            saves = int(best.get("goalie_saves", 0))
+            sv = saves / shots
+            summary = f"{int(best.get('goalie_w', 0))}W, {sv:.3f} SV%, {int(best.get('goalie_gp', 0))} GP"
+        else:
+            summary = f"{int(best.get('p', 0))} pts ({int(best.get('g', 0))}G-{int(best.get('a', 0))}A) in {int(best.get('gp', 0))} GP"
+        return {
+            "name": str(best.get("name", "")),
+            "team": champion,
+            "position": pos,
+            "summary": summary,
+        }
+
     def _simulate_playoff_series(
         self,
         round_name: str,
         higher_seed: Team,
         lower_seed: Team,
         best_of: int = 7,
+        playoff_tracker: dict[str, dict[str, object]] | None = None,
     ) -> dict[str, object]:
         wins_needed = best_of // 2 + 1
         high_wins = 0
@@ -1782,6 +1916,8 @@ class LeagueSimulator:
                 apply_injuries=False,
                 record_goalie_stats=False,
             )
+            if playoff_tracker is not None:
+                self._accumulate_playoff_game_stats(result, playoff_tracker)
             higher_goals = result.home_goals if home.name == higher_seed.name else result.away_goals
             lower_goals = result.home_goals if home.name == lower_seed.name else result.away_goals
             higher_won = higher_goals > lower_goals
@@ -1836,6 +1972,7 @@ class LeagueSimulator:
         standings = {rec.team.name: rec for rec in self.get_standings()}
         rounds: list[dict[str, object]] = []
         playoff_seeds: list[dict[str, object]] = []
+        playoff_tracker: dict[str, dict[str, object]] = {}
 
         def _team_seed_key(team: Team) -> tuple[int, int, int]:
             rec = standings.get(team.name)
@@ -1915,7 +2052,7 @@ class LeagueSimulator:
                 division_advancers: dict[str, list[Team]] = {div_a: [], div_b: []}
 
                 if a_top and a_wc is not None:
-                    series = self._simulate_playoff_series(f"{div_a} Division First Round", a_top[0].team, a_wc, best_of=7)
+                    series = self._simulate_playoff_series(f"{div_a} Division First Round", a_top[0].team, a_wc, best_of=7, playoff_tracker=playoff_tracker)
                     first_round_series.append(series)
                     winner_team = self.get_team(str(series["winner"]))
                     if winner_team is not None:
@@ -1923,14 +2060,14 @@ class LeagueSimulator:
                 elif a_top:
                     division_advancers[div_a].append(a_top[0].team)
                 if len(a_top) >= 3:
-                    series = self._simulate_playoff_series(f"{div_a} Division First Round", a_top[1].team, a_top[2].team, best_of=7)
+                    series = self._simulate_playoff_series(f"{div_a} Division First Round", a_top[1].team, a_top[2].team, best_of=7, playoff_tracker=playoff_tracker)
                     first_round_series.append(series)
                     winner_team = self.get_team(str(series["winner"]))
                     if winner_team is not None:
                         division_advancers[div_a].append(winner_team)
 
                 if b_top and b_wc is not None:
-                    series = self._simulate_playoff_series(f"{div_b} Division First Round", b_top[0].team, b_wc, best_of=7)
+                    series = self._simulate_playoff_series(f"{div_b} Division First Round", b_top[0].team, b_wc, best_of=7, playoff_tracker=playoff_tracker)
                     first_round_series.append(series)
                     winner_team = self.get_team(str(series["winner"]))
                     if winner_team is not None:
@@ -1938,7 +2075,7 @@ class LeagueSimulator:
                 elif b_top:
                     division_advancers[div_b].append(b_top[0].team)
                 if len(b_top) >= 3:
-                    series = self._simulate_playoff_series(f"{div_b} Division First Round", b_top[1].team, b_top[2].team, best_of=7)
+                    series = self._simulate_playoff_series(f"{div_b} Division First Round", b_top[1].team, b_top[2].team, best_of=7, playoff_tracker=playoff_tracker)
                     first_round_series.append(series)
                     winner_team = self.get_team(str(series["winner"]))
                     if winner_team is not None:
@@ -1953,7 +2090,7 @@ class LeagueSimulator:
                     advancers = division_advancers.get(division, [])
                     if len(advancers) >= 2:
                         advancers = sorted(advancers, key=_team_seed_key, reverse=True)
-                        series = self._simulate_playoff_series(f"{division} Division Final", advancers[0], advancers[1], best_of=7)
+                        series = self._simulate_playoff_series(f"{division} Division Final", advancers[0], advancers[1], best_of=7, playoff_tracker=playoff_tracker)
                         division_final_series.append(series)
                         winner_team = self.get_team(str(series["winner"]))
                         if winner_team is not None:
@@ -1971,6 +2108,7 @@ class LeagueSimulator:
                         division_champions[0],
                         division_champions[1],
                         best_of=7,
+                        playoff_tracker=playoff_tracker,
                     )
                     rounds.append({"name": f"{conference} Conference Final", "series": [conference_final]})
                     conf_winner = self.get_team(str(conference_final["winner"]))
@@ -2003,7 +2141,7 @@ class LeagueSimulator:
                     continue
                 high_team = conference_qualifiers[high_idx].team
                 low_team = conference_qualifiers[low_idx].team
-                series = self._simulate_playoff_series(f"{conference} Conference Quarterfinal", high_team, low_team, best_of=7)
+                series = self._simulate_playoff_series(f"{conference} Conference Quarterfinal", high_team, low_team, best_of=7, playoff_tracker=playoff_tracker)
                 first_round_series.append(series)
                 winner_team = self.get_team(str(series["winner"]))
                 if winner_team is not None:
@@ -2018,7 +2156,7 @@ class LeagueSimulator:
                 while len(semifinal_teams) >= 2:
                     high = semifinal_teams.pop(0)
                     low = semifinal_teams.pop(-1)
-                    series = self._simulate_playoff_series(f"{conference} Conference Semifinal", high, low, best_of=7)
+                    series = self._simulate_playoff_series(f"{conference} Conference Semifinal", high, low, best_of=7, playoff_tracker=playoff_tracker)
                     semifinal_series.append(series)
                     winner_team = self.get_team(str(series["winner"]))
                     if winner_team is not None:
@@ -2033,6 +2171,7 @@ class LeagueSimulator:
                     finalists[0],
                     finalists[1],
                     best_of=7,
+                    playoff_tracker=playoff_tracker,
                 )
                 rounds.append({"name": f"{conference} Conference Final", "series": [conference_final]})
                 conf_winner = self.get_team(str(conference_final["winner"]))
@@ -2052,7 +2191,7 @@ class LeagueSimulator:
             reverse=True,
         )
         if len(finalists) >= 2:
-            cup_final = self._simulate_playoff_series("Cup Final", finalists[0], finalists[1], best_of=7)
+            cup_final = self._simulate_playoff_series("Cup Final", finalists[0], finalists[1], best_of=7, playoff_tracker=playoff_tracker)
             rounds.append({"name": "Cup Final", "series": [cup_final]})
             cup_champion = str(cup_final.get("winner", ""))
         elif finalists:
@@ -2064,6 +2203,7 @@ class LeagueSimulator:
             "cup_name": "Founders Cup",
             "champion": cup_champion,
             "cup_champion": cup_champion,
+            "mvp": self._select_playoff_mvp(cup_champion, playoff_tracker),
             "seeds": playoff_seeds,
             "rounds": rounds,
         }
@@ -2076,6 +2216,7 @@ class LeagueSimulator:
     def _complete_offseason_with_playoffs(self, playoffs: dict[str, object]) -> dict[str, object]:
         champion = str(playoffs.get("champion", "")) if playoffs else (self.get_standings()[0].team.name if self.teams else "")
         coach_rows: list[dict[str, object]] = []
+        leadership_rows: list[dict[str, object]] = []
         standings = self.get_standings()
         for rec in standings:
             coach_rows.append(
@@ -2092,11 +2233,19 @@ class LeagueSimulator:
                     "champion": rec.team.name == champion,
                 }
             )
+            leadership_rows.append(
+                {
+                    "team": rec.team.name,
+                    "captain": rec.team.captain_name,
+                    "assistants": list(rec.team.assistant_names),
+                }
+            )
         summary = {
             "season": self.season_number,
             "champion": champion,
             "standings": self._serialize_standings(),
             "coaches": coach_rows,
+            "leadership": leadership_rows,
             "top_scorers": self._serialize_top_scorers(),
             "top_goalies": self._serialize_top_goalies(),
             "playoffs": playoffs,
@@ -2113,6 +2262,7 @@ class LeagueSimulator:
             team.coach_tenure_seasons += 1
             team.coach_changes_recent = max(0.0, team.coach_changes_recent * 0.72)
             team.coach_honeymoon_games_remaining = 0
+        self._ensure_team_leadership()
 
         summary["retired"] = retired
         summary["draft"] = drafted

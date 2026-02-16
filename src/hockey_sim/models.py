@@ -107,6 +107,8 @@ class Team:
     coach_tenure_seasons: int = 0
     coach_changes_recent: float = 0.0
     coach_honeymoon_games_remaining: int = 0
+    captain_name: str = ""
+    assistant_names: list[str] = field(default_factory=list)
 
     MAX_ROSTER_SIZE: ClassVar[int] = 22
     MIN_MINOR_ROSTER_SIZE: ClassVar[int] = 10
