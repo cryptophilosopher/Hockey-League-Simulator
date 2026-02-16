@@ -135,3 +135,35 @@ def test_round_one_draft_order_and_player_pick_tracking(tmp_path) -> None:
                 round_one.append(player)
     assert len(round_one) >= len(teams)
     assert any(p.draft_overall == 1 for p in round_one)
+
+
+def test_current_day_is_capped_at_regular_season_total() -> None:
+    teams = build_default_teams()
+    sim = LeagueSimulator(teams=teams, games_per_matchup=1, seed=31)
+    while not sim.is_complete():
+        sim.simulate_next_day()
+    assert sim.current_day == sim.total_days
+
+
+def test_playoff_day_advances_injury_recovery(tmp_path) -> None:
+    teams = build_default_teams()
+    sim = LeagueSimulator(
+        teams=teams,
+        games_per_matchup=1,
+        seed=41,
+        state_path=str(tmp_path / "league_state.json"),
+        history_path=str(tmp_path / "season_history.json"),
+        career_history_path=str(tmp_path / "career_history.json"),
+        hall_of_fame_path=str(tmp_path / "hall_of_fame.json"),
+    )
+    while not sim.is_complete():
+        sim.simulate_next_day()
+
+    started = sim.start_playoffs()
+    assert started.get("started") is True
+    assert int(started.get("total_days", 0)) > 0
+
+    injured_player = sim.teams[0].roster[0]
+    injured_player.injured_games_remaining = 3
+    sim.simulate_next_playoff_day()
+    assert injured_player.injured_games_remaining == 2

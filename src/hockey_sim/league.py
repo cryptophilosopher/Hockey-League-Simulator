@@ -189,7 +189,10 @@ class LeagueSimulator:
 
     @property
     def current_day(self) -> int:
-        return self._day_index + 1
+        total = len(self._season_days)
+        if total <= 0:
+            return 1
+        return max(1, min(self._day_index + 1, total))
 
     @property
     def strategies(self) -> list[str]:
@@ -1028,6 +1031,8 @@ class LeagueSimulator:
                 "complete": True,
                 "playoffs": self.pending_playoffs,
             }
+        # Keep injury recovery moving during playoffs so "games out" continues to decay.
+        self._advance_recovery_day()
         day = self.pending_playoff_days[self.pending_playoff_day_index]
         self.pending_playoff_day_index += 1
         complete = self.pending_playoff_day_index >= len(self.pending_playoff_days)
