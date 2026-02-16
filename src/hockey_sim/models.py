@@ -29,6 +29,7 @@ class Player:
     goaltending: float
     physical: float
     durability: float
+    jersey_number: int | None = None
     birth_country: str = "Canada"
     birth_country_code: str = "CA"
     player_id: str = field(default_factory=lambda: uuid4().hex)
@@ -44,6 +45,7 @@ class Player:
     goalie_wins: int = 0
     goalie_losses: int = 0
     goalie_ot_losses: int = 0
+    goalie_shutouts: int = 0
     shots_against: int = 0
     saves: int = 0
     goals_against: int = 0
@@ -118,8 +120,9 @@ class Team:
     DRESSED_GOALIES: ClassVar[int] = 2
 
     def __post_init__(self) -> None:
-        if len(self.roster) > self.MAX_ROSTER_SIZE:
-            raise ValueError(f"{self.name} roster exceeds max of {self.MAX_ROSTER_SIZE}.")
+        active_count = len([p for p in self.roster if not p.is_injured])
+        if active_count > self.MAX_ROSTER_SIZE:
+            raise ValueError(f"{self.name} active roster exceeds max of {self.MAX_ROSTER_SIZE}.")
         if self.line_assignments:
             self._refresh_dressed_from_assignments()
         elif not self.dressed_player_names:

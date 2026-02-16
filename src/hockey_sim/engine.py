@@ -55,7 +55,7 @@ class GameResult:
 def _sample_goals(strength: float, rng: random.Random, randomness_scale: float = 1.0) -> int:
     # Poisson-like scoring tuned near recent NHL scoring environment.
     jitter = 0.18 * max(0.5, randomness_scale)
-    lam = max(2.0, min(4.1, strength + rng.uniform(-jitter, jitter)))
+    lam = max(1.5, min(3.5, strength + rng.uniform(-jitter, jitter)))
     l = pow(2.718281828459045, -lam)
     k = 0
     p = 1.0
@@ -191,10 +191,10 @@ def _apply_special_teams_goals(
     home_pp_chances = away_pen_taken
     away_pp_chances = home_pen_taken
 
-    home_pp_rate = 0.155 + (home_pp - 3.0) * 0.028 - (away_pk - 3.0) * 0.020 - (away_goalie - 3.0) * 0.015 + home_offense_bonus * 0.06
-    away_pp_rate = 0.155 + (away_pp - 3.0) * 0.028 - (home_pk - 3.0) * 0.020 - (home_goalie - 3.0) * 0.015 + away_offense_bonus * 0.06
-    home_pp_rate = max(0.05, min(0.36, home_pp_rate))
-    away_pp_rate = max(0.05, min(0.36, away_pp_rate))
+    home_pp_rate = 0.135 + (home_pp - 3.0) * 0.024 - (away_pk - 3.0) * 0.020 - (away_goalie - 3.0) * 0.015 + home_offense_bonus * 0.05
+    away_pp_rate = 0.135 + (away_pp - 3.0) * 0.024 - (home_pk - 3.0) * 0.020 - (home_goalie - 3.0) * 0.015 + away_offense_bonus * 0.05
+    home_pp_rate = max(0.05, min(0.31, home_pp_rate))
+    away_pp_rate = max(0.05, min(0.31, away_pp_rate))
 
     home_pp_goals = 0
     away_pp_goals = 0
@@ -260,6 +260,8 @@ def _record_goalie_stats(
 
     if is_win:
         goalie.goalie_wins += 1
+        if goals_against == 0:
+            goalie.goalie_shutouts += 1
     elif overtime:
         goalie.goalie_ot_losses += 1
     else:
@@ -422,6 +424,8 @@ def simulate_game(
     record_goalie_stats: bool = True,
 ) -> GameResult:
     rng = rng or random.Random()
+    home_goalie = _starting_goalie(home, rng)
+    away_goalie = _starting_goalie(away, rng)
 
     home_effect = STRATEGY_EFFECTS.get(home_strategy, STRATEGY_EFFECTS["balanced"])
     away_effect = STRATEGY_EFFECTS.get(away_strategy, STRATEGY_EFFECTS["balanced"])
@@ -435,8 +439,9 @@ def simulate_game(
     home_fatigue = min(0.12, max(0.0, (home_usage_peak - home_usage_mean) * 0.10))
     away_fatigue = min(0.12, max(0.0, (away_usage_peak - away_usage_mean) * 0.10))
 
-    home_strength = _team_offense(home) * 0.60 + (5.0 - _team_defense(away)) * 0.40 + 0.12
-    away_strength = _team_offense(away) * 0.60 + (5.0 - _team_defense(home)) * 0.40 - 0.04
+    # Slightly lower scoring baseline to better match modern pro-hockey game totals.
+    home_strength = _team_offense(home) * 0.55 + (5.0 - _team_defense(away)) * 0.36 - 0.08
+    away_strength = _team_offense(away) * 0.55 + (5.0 - _team_defense(home)) * 0.36 - 0.22
 
     home_strength += home_effect["offense"] - away_effect["defense"]
     away_strength += away_effect["offense"] - home_effect["defense"]
@@ -446,6 +451,20 @@ def simulate_game(
     away_strength += away_context_bonus
     home_strength -= home_fatigue
     away_strength -= away_fatigue
+
+    # Emergency goalie handling: a non-goalie in net should make winning very unlikely.
+    if home_goalie is None:
+        away_strength += 1.15
+        home_strength -= 0.12
+    elif home_goalie.position != "G":
+        away_strength += 0.95
+        home_strength -= 0.10
+    if away_goalie is None:
+        home_strength += 1.15
+        away_strength -= 0.12
+    elif away_goalie.position != "G":
+        home_strength += 0.95
+        away_strength -= 0.10
 
     home_goals = _sample_goals(home_strength, rng, randomness_scale=randomness_scale)
     away_goals = _sample_goals(away_strength, rng, randomness_scale=randomness_scale)
@@ -474,9 +493,6 @@ def simulate_game(
             player.games_played += 1
         for player in (away.dressed_players() or away.active_players()):
             player.games_played += 1
-
-    home_goalie = _starting_goalie(home, rng)
-    away_goalie = _starting_goalie(away, rng)
 
     home_goal_events = _build_goal_events(home, home_goals, rng, record_player_stats, usage=home_usage)
     away_goal_events = _build_goal_events(away, away_goals, rng, record_player_stats, usage=away_usage)

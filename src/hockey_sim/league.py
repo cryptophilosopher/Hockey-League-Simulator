@@ -128,12 +128,13 @@ class LeagueSimulator:
         self._name_generator = NameGenerator(seed=seed)
         self._name_generator.reserve([p.name for t in self.teams for p in [*t.roster, *t.minor_roster]])
         self.season_number = int(loaded_state.get("season_number", 1)) if loaded_state else 1
+        self.prime_age_min = min(prime_age_min, prime_age_max)
+        self.prime_age_max = max(prime_age_min, prime_age_max)
         self._ensure_minor_roster_depth()
         self._migrate_legacy_birth_countries()
         self._ensure_team_coaches()
         self._ensure_team_leadership()
-        self.prime_age_min = min(prime_age_min, prime_age_max)
-        self.prime_age_max = max(prime_age_min, prime_age_max)
+        self._ensure_team_player_numbers()
         self.history_path = Path(history_path or "season_history.json")
         self.career_history_path = Path(career_history_path or "career_history.json")
         self.hall_of_fame_path = Path(hall_of_fame_path or "hall_of_fame.json")
@@ -282,6 +283,7 @@ class LeagueSimulator:
             "team_name": player.team_name,
             "name": player.name,
             "position": player.position,
+            "jersey_number": player.jersey_number,
             "birth_country": player.birth_country,
             "birth_country_code": player.birth_country_code,
             "shooting": player.shooting,
@@ -302,6 +304,7 @@ class LeagueSimulator:
             "goalie_wins": player.goalie_wins,
             "goalie_losses": player.goalie_losses,
             "goalie_ot_losses": player.goalie_ot_losses,
+            "goalie_shutouts": player.goalie_shutouts,
             "shots_against": player.shots_against,
             "saves": player.saves,
             "goals_against": player.goals_against,
@@ -327,6 +330,7 @@ class LeagueSimulator:
             team_name=str(raw.get("team_name", "")),
             name=str(raw.get("name", "")),
             position=str(raw.get("position", "C")),
+            jersey_number=(int(raw.get("jersey_number")) if raw.get("jersey_number") is not None else None),
             birth_country=(str(raw.get("birth_country", sampled_country)) if has_country else sampled_country),
             birth_country_code=(str(raw.get("birth_country_code", sampled_code)).upper() if has_country else sampled_code),
             shooting=float(raw.get("shooting", 2.5)),
@@ -347,6 +351,7 @@ class LeagueSimulator:
             goalie_wins=int(raw.get("goalie_wins", 0)),
             goalie_losses=int(raw.get("goalie_losses", 0)),
             goalie_ot_losses=int(raw.get("goalie_ot_losses", 0)),
+            goalie_shutouts=int(raw.get("goalie_shutouts", 0)),
             shots_against=int(raw.get("shots_against", 0)),
             saves=int(raw.get("saves", 0)),
             goals_against=int(raw.get("goals_against", 0)),
@@ -399,8 +404,33 @@ class LeagueSimulator:
             roster = [self._deserialize_player(p) for p in roster_raw if isinstance(p, dict)]
             minor_roster_raw = raw_team.get("minor_roster", [])
             minor_roster = [self._deserialize_player(p) for p in minor_roster_raw if isinstance(p, dict)]
+
+            # Backward-compatible load repair:
+            # older saves can carry >22 healthy players on active roster.
+            active_roster = [p for p in roster if not p.is_injured]
+            overflow = len(active_roster) - Team.MAX_ROSTER_SIZE
+            if overflow > 0:
+                def _load_value(player: Player) -> float:
+                    if player.position in GOALIE_POSITIONS:
+                        return player.goaltending * 0.72 + player.durability * 0.18 + player.defense * 0.10
+                    return player.shooting * 0.38 + player.playmaking * 0.32 + player.defense * 0.22 + player.physical * 0.08
+
+                non_goalie = [p for p in active_roster if p.position not in GOALIE_POSITIONS]
+                demote_pool = sorted(non_goalie, key=lambda p: (_load_value(p), p.age, p.name))
+                if len(demote_pool) < overflow:
+                    remaining = [p for p in active_roster if p not in demote_pool]
+                    demote_pool.extend(
+                        sorted(remaining, key=lambda p: (_load_value(p), p.age, p.name))[: overflow - len(demote_pool)]
+                    )
+                for player in demote_pool[:overflow]:
+                    if player in roster:
+                        roster.remove(player)
+                        minor_roster.append(player)
+
             dressed_raw = raw_team.get("dressed_player_names", [])
             dressed = {str(name) for name in dressed_raw} if isinstance(dressed_raw, list) else set()
+            roster_names = {p.name for p in roster}
+            dressed = {name for name in dressed if name in roster_names}
             teams.append(
                 Team(
                     name=str(raw_team.get("name", "")),
@@ -545,6 +575,55 @@ class LeagueSimulator:
                 team.assistant_names = [*assistants_valid, *[n for n in picked if n not in assistants_valid][: max(0, 2 - len(assistants_valid))]]
             else:
                 team.assistant_names = assistants_valid[:2]
+
+    def _number_pool_for_position(self, position: str) -> list[int]:
+        if position in GOALIE_POSITIONS:
+            return [1, *list(range(30, 40)), 41, 50, 60, 70, 80, 90]
+        return [*list(range(2, 30)), *list(range(40, 100))]
+
+    def _assign_team_player_numbers(self, team: Team) -> None:
+        used: set[int] = set()
+        all_players = [*team.roster, *team.minor_roster]
+
+        # Keep valid unique existing numbers first.
+        for player in all_players:
+            n = player.jersey_number
+            if n is None:
+                continue
+            if not (1 <= int(n) <= 99):
+                player.jersey_number = None
+                continue
+            if int(n) in used:
+                player.jersey_number = None
+                continue
+            used.add(int(n))
+
+        # Assign missing/invalid numbers with position-aware defaults.
+        for player in all_players:
+            if player.jersey_number is not None:
+                continue
+            assigned: int | None = None
+            for candidate in self._number_pool_for_position(player.position):
+                if candidate not in used:
+                    assigned = candidate
+                    break
+            if assigned is None:
+                for candidate in range(1, 100):
+                    if candidate not in used:
+                        assigned = candidate
+                        break
+            if assigned is None:
+                assigned = 99
+            player.jersey_number = assigned
+            used.add(assigned)
+
+    def _ensure_team_player_numbers(self) -> None:
+        for team in self.teams:
+            self._assign_team_player_numbers(team)
+
+    def normalize_player_numbers(self) -> None:
+        self._ensure_team_player_numbers()
+        self._save_state()
 
     def _migrate_legacy_birth_countries(self) -> None:
         for team in self.teams:
@@ -826,6 +905,7 @@ class LeagueSimulator:
                     "w": p.goalie_wins,
                     "l": p.goalie_losses,
                     "otl": p.goalie_ot_losses,
+                    "so": p.goalie_shutouts,
                     "sv_pct": round(p.save_pct, 3),
                     "gaa": round(p.gaa, 2),
                 }
@@ -1032,6 +1112,7 @@ class LeagueSimulator:
                 "playoffs": self.pending_playoffs,
             }
         # Keep injury recovery moving during playoffs so "games out" continues to decay.
+        self._ensure_team_player_numbers()
         self._advance_recovery_day()
         day = self.pending_playoff_days[self.pending_playoff_day_index]
         self.pending_playoff_day_index += 1
@@ -1062,6 +1143,7 @@ class LeagueSimulator:
         if self.is_complete():
             return []
 
+        self._ensure_team_player_numbers()
         self._advance_recovery_day()
 
         user_strategy = user_strategy.lower()
@@ -1233,13 +1315,41 @@ class LeagueSimulator:
                 player.goalie_wins = 0
                 player.goalie_losses = 0
                 player.goalie_ot_losses = 0
+                player.goalie_shutouts = 0
                 player.shots_against = 0
                 player.saves = 0
                 player.goals_against = 0
 
     def _record_career_season_stats(self, completed_season: int) -> None:
         for team in self.teams:
+            team_record = self._records.get(team.name)
+            team_goal_diff = float(team_record.goal_diff) if team_record is not None else 0.0
             for player in [*team.roster, *team.minor_roster]:
+                gp = max(1, int(player.games_played))
+                position = player.position
+                if position == "D":
+                    toi_per_game = 18.0 + player.defense * 1.55 + player.playmaking * 0.25
+                elif position == "G":
+                    toi_per_game = 0.0
+                else:
+                    toi_per_game = 11.2 + player.scoring_weight * 2.05 + player.defense * 0.35
+                toi_per_game = round(max(0.0, min(30.0, toi_per_game)), 1)
+
+                shot_rate = 1.15 + player.shooting * 0.68 + (0.18 if position in {"C", "LW", "RW"} else (-0.22 if position == "D" else -0.65))
+                shots = max(player.goals, int(round(gp * max(0.4, shot_rate))))
+                shot_pct = (player.goals / shots * 100.0) if shots > 0 else 0.0
+                pp_share = min(0.68, max(0.12, 0.26 + (player.playmaking + player.shooting - 5.2) * 0.07))
+                pp_points = min(player.points, int(round(player.points * pp_share)))
+                goal_share = player.goals / max(1, player.points)
+                ppg = min(player.goals, int(round(pp_points * goal_share * 0.92)))
+                ppa = max(0, pp_points - ppg)
+                sh_cap = max(0, player.points - pp_points)
+                sh_points = min(sh_cap, int(round(gp * max(0.0, 0.02 + player.defense * 0.03))))
+                shg = min(player.goals - ppg, max(0, int(round(sh_points * goal_share))))
+                sha = max(0, sh_points - shg)
+                plus_minus = int(round((player.points / gp - 0.55) * gp * 0.34 + team_goal_diff * 0.18))
+                pim = int(round(gp * (0.24 + player.physical * 0.40)))
+
                 entry = {
                     "season": completed_season,
                     "team": team.name,
@@ -1257,6 +1367,16 @@ class LeagueSimulator:
                     "goalie_w": player.goalie_wins,
                     "goalie_l": player.goalie_losses,
                     "goalie_otl": player.goalie_ot_losses,
+                    "goalie_so": player.goalie_shutouts,
+                    "plus_minus": plus_minus,
+                    "pim": pim,
+                    "toi_g": toi_per_game,
+                    "ppg": ppg,
+                    "ppa": ppa,
+                    "shg": shg,
+                    "sha": sha,
+                    "shots": shots,
+                    "shot_pct": round(shot_pct, 1),
                     "gaa": round(player.gaa, 2),
                     "sv_pct": round(player.save_pct, 3),
                     "rating_shooting": round(player.shooting, 2),
@@ -1313,7 +1433,8 @@ class LeagueSimulator:
     def _promote_from_minors(self, team: Team, player: Player) -> bool:
         if player not in team.minor_roster:
             return False
-        if len(team.roster) >= Team.MAX_ROSTER_SIZE:
+        active_count = len([p for p in team.roster if not p.is_injured])
+        if active_count >= Team.MAX_ROSTER_SIZE:
             healthy_forwards = len([p for p in team.roster if p.position in FORWARD_POSITIONS and not p.is_injured])
             healthy_defense = len([p for p in team.roster if p.position in DEFENSE_POSITIONS and not p.is_injured])
             healthy_goalies = len([p for p in team.roster if p.position in GOALIE_POSITIONS and not p.is_injured])
@@ -1369,6 +1490,53 @@ class LeagueSimulator:
         team.minor_roster.remove(player)
         player.team_name = team.name
         team.roster.append(player)
+        return True
+
+    def promote_minor_player(self, team_name: str, player_name: str) -> bool:
+        team = self.get_team(team_name)
+        if team is None:
+            return False
+        player = next((p for p in team.minor_roster if p.name == player_name), None)
+        if player is None:
+            return False
+        moved = self._promote_from_minors(team, player)
+        if not moved:
+            return False
+        self._assign_team_player_numbers(team)
+        team.set_default_lineup()
+        self._ensure_team_leadership()
+        self._save_state()
+        return True
+
+    def demote_roster_player(self, team_name: str, player_name: str) -> bool:
+        team = self.get_team(team_name)
+        if team is None:
+            return False
+        player = next((p for p in team.roster if p.name == player_name), None)
+        if player is None:
+            return False
+
+        healthy_forwards = len([p for p in team.roster if p.position in FORWARD_POSITIONS and not p.is_injured])
+        healthy_defense = len([p for p in team.roster if p.position in DEFENSE_POSITIONS and not p.is_injured])
+        healthy_goalies = len([p for p in team.roster if p.position in GOALIE_POSITIONS and not p.is_injured])
+
+        if not player.is_injured:
+            if player.position in GOALIE_POSITIONS and healthy_goalies <= Team.DRESSED_GOALIES:
+                return False
+            if player.position in DEFENSE_POSITIONS and healthy_defense <= Team.DRESSED_DEFENSE:
+                return False
+            if player.position in FORWARD_POSITIONS and healthy_forwards <= Team.DRESSED_FORWARDS:
+                return False
+
+        team.roster.remove(player)
+        team.minor_roster.append(player)
+        team.dressed_player_names.discard(player.name)
+        if team.starting_goalie_name == player.name:
+            team.starting_goalie_name = None
+        self._assign_team_player_numbers(team)
+        team.set_default_lineup()
+        self._ensure_team_leadership()
+        self._save_state()
         return True
 
     def _ensure_team_depth(self, team: Team) -> None:

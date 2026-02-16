@@ -50,16 +50,34 @@ class DraftNeedSelection(BaseModel):
     team_name: str | None = None
 
 
+class InboxResolveSelection(BaseModel):
+    event_id: int
+    choice_id: str
+
+
+class CallupSelection(BaseModel):
+    team_name: str | None = None
+    player_name: str
+
+
 class SimService:
     def __init__(self) -> None:
+        self.data_root = Path(__file__).resolve().parents[2]
         self._init_fresh_state()
         self._load_runtime_state()
         self._lock = Lock()
 
     def _init_fresh_state(self) -> None:
         teams = build_default_teams()
-        self.simulator = LeagueSimulator(teams=teams, games_per_matchup=2)
-        self.runtime_state_path = Path("api_runtime_state.json")
+        self.simulator = LeagueSimulator(
+            teams=teams,
+            games_per_matchup=2,
+            history_path=str(self.data_root / "season_history.json"),
+            career_history_path=str(self.data_root / "career_history.json"),
+            hall_of_fame_path=str(self.data_root / "hall_of_fame.json"),
+            state_path=str(self.data_root / "league_state.json"),
+        )
+        self.runtime_state_path = self.data_root / "api_runtime_state.json"
         self.user_team_name = teams[0].name if teams else ""
         self.user_strategy = "balanced"
         self.override_coach_for_lines = False
@@ -67,6 +85,8 @@ class SimService:
         self.game_mode = "gm"
         self.daily_results: list[dict[str, Any]] = []
         self.news_feed: list[dict[str, Any]] = []
+        self.inbox_events: list[dict[str, Any]] = []
+        self.next_inbox_id: int = 1
         self.coach_pool: list[dict[str, Any]] = self._build_initial_coach_pool()
 
     def _load_runtime_state(self) -> None:
@@ -97,6 +117,16 @@ class SimService:
             self.game_mode = mode
         self.override_coach_for_lines = bool(raw.get("override_coach_for_lines", self.override_coach_for_lines))
         self.override_coach_for_strategy = bool(raw.get("override_coach_for_strategy", self.override_coach_for_strategy))
+        raw_inbox = raw.get("inbox_events", [])
+        if isinstance(raw_inbox, list):
+            self.inbox_events = [row for row in raw_inbox if isinstance(row, dict)]
+        else:
+            self.inbox_events = []
+        try:
+            self.next_inbox_id = int(raw.get("next_inbox_id", 1))
+        except (TypeError, ValueError):
+            self.next_inbox_id = 1
+        self.next_inbox_id = max(1, self.next_inbox_id)
 
     def _save_runtime_state(self) -> None:
         payload = {
@@ -107,11 +137,276 @@ class SimService:
             "game_mode": self.game_mode,
             "daily_results": self.daily_results[-600:],
             "news_feed": self.news_feed[:250],
+            "inbox_events": self.inbox_events[-300:],
+            "next_inbox_id": self.next_inbox_id,
         }
         try:
             self.runtime_state_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         except OSError:
             pass
+
+    def _player_overall(self, player: Player) -> float:
+        if player.position == "G":
+            return player.goaltending * 0.72 + player.durability * 0.18 + player.defense * 0.10
+        return player.shooting * 0.38 + player.playmaking * 0.32 + player.defense * 0.22 + player.physical * 0.08
+
+    def _user_team(self):
+        if not self.user_team_name:
+            return None
+        return self.simulator.get_team(self.user_team_name)
+
+    def _add_inbox_event(
+        self,
+        day_num: int,
+        event_type: str,
+        title: str,
+        details: str,
+        options: list[dict[str, str]],
+        payload: dict[str, Any] | None = None,
+        expires_in_days: int = 5,
+        auto_choice_id: str | None = None,
+    ) -> None:
+        event = {
+            "id": self.next_inbox_id,
+            "season": int(self.simulator.season_number),
+            "day": int(day_num),
+            "type": event_type,
+            "title": title,
+            "details": details,
+            "options": options,
+            "payload": payload or {},
+            "expires_day": int(day_num + max(1, expires_in_days)),
+            "auto_choice_id": auto_choice_id or (options[0]["id"] if options else ""),
+            "resolved": False,
+            "resolution": None,
+        }
+        self.next_inbox_id += 1
+        self.inbox_events.insert(0, event)
+        self.inbox_events = self.inbox_events[:300]
+
+    def _find_inbox_event(self, event_id: int) -> dict[str, Any] | None:
+        for event in self.inbox_events:
+            if int(event.get("id", 0)) == int(event_id):
+                return event
+        return None
+
+    def _resolve_inbox_event_internal(self, event: dict[str, Any], choice_id: str, auto: bool = False) -> dict[str, Any]:
+        if bool(event.get("resolved", False)):
+            return event
+        event_type = str(event.get("type", ""))
+        payload = event.get("payload", {})
+        if not isinstance(payload, dict):
+            payload = {}
+        team = self._user_team()
+
+        if team is not None and event_type == "injury":
+            injured_name = str(payload.get("injured_name", ""))
+            if choice_id == "recall_and_rest" and injured_name:
+                player = next((p for p in [*team.roster, *team.minor_roster] if p.name == injured_name), None)
+                if player is not None and player.injured_games_remaining > 0:
+                    player.injured_games_remaining = max(0, player.injured_games_remaining - 1)
+
+        if team is not None and event_type == "coach_pressure":
+            if choice_id == "back_coach":
+                team.coach_honeymoon_games_remaining = max(team.coach_honeymoon_games_remaining, 6)
+                team.coach_changes_recent = max(0.0, team.coach_changes_recent - 0.4)
+            elif choice_id == "demand_results":
+                team.coach_changes_recent = min(6.0, team.coach_changes_recent + 0.55)
+
+        if team is not None and event_type == "trade_offer":
+            partner_name = str(payload.get("partner_team", ""))
+            give_name = str(payload.get("give_player", ""))
+            receive_name = str(payload.get("receive_player", ""))
+            if choice_id == "accept_trade" and partner_name and give_name and receive_name:
+                partner = self.simulator.get_team(partner_name)
+                if partner is not None:
+                    give_player = next((p for p in team.roster if p.name == give_name), None)
+                    recv_player = next((p for p in partner.roster if p.name == receive_name), None)
+                    if give_player is not None and recv_player is not None:
+                        team.roster.remove(give_player)
+                        partner.roster.remove(recv_player)
+                        give_player.team_name = partner.name
+                        recv_player.team_name = team.name
+                        partner.roster.append(give_player)
+                        team.roster.append(recv_player)
+                        self.simulator.normalize_player_numbers()
+                        team.set_default_lineup()
+                        partner.set_default_lineup()
+                        self._add_news(
+                            kind="transaction",
+                            headline=f"Trade: {team.name} acquired {receive_player} from {partner.name}",
+                            details=f"{team.name} sent {give_name} to {partner.name}.",
+                            team=team.name,
+                            day=self.simulator.current_day,
+                        )
+
+        if team is not None and event_type == "waiver":
+            if choice_id == "claim_waiver":
+                pos = str(payload.get("position", "C")).upper()
+                quality = float(payload.get("quality", 0.66))
+                waiver_player = self.simulator._create_draft_player(
+                    team_name=team.name,
+                    position=pos if pos in {"C", "LW", "RW", "D", "G"} else "C",
+                    quality=max(0.40, min(0.88, quality)),
+                )
+                waiver_player.prospect_tier = "NHL"
+                waiver_player.seasons_to_nhl = 0
+                team.minor_roster.append(waiver_player)
+                self._add_news(
+                    kind="transaction",
+                    headline=f"Transaction: {team.name} claimed {waiver_player.name}",
+                    details=f"Waiver claim ({waiver_player.position}) added to minor-league depth.",
+                    team=team.name,
+                    day=self.simulator.current_day,
+                )
+
+        if team is not None and event_type == "prospect":
+            prospect_name = str(payload.get("prospect_name", ""))
+            prospect = next((p for p in team.minor_roster if p.name == prospect_name), None)
+            if prospect is not None:
+                if choice_id == "accelerate":
+                    prospect.seasons_to_nhl = max(0, int(prospect.seasons_to_nhl) - 1)
+                    prospect.durability = max(1.2, prospect.durability - 0.12)
+                elif choice_id == "steady":
+                    prospect.prospect_potential = min(0.99, prospect.prospect_potential + 0.03)
+
+        event["resolved"] = True
+        event["resolution"] = {
+            "choice_id": choice_id,
+            "auto": bool(auto),
+            "season": int(self.simulator.season_number),
+            "day": int(self.simulator.current_day),
+        }
+        return event
+
+    def _expire_inbox_events(self, day_num: int) -> None:
+        changed = False
+        for event in self.inbox_events:
+            if bool(event.get("resolved", False)):
+                continue
+            expires_day = int(event.get("expires_day", 0))
+            if expires_day > 0 and expires_day < int(day_num):
+                choice_id = str(event.get("auto_choice_id", "")) or "ignore"
+                self._resolve_inbox_event_internal(event, choice_id=choice_id, auto=True)
+                changed = True
+        if changed:
+            self._save_runtime_state()
+
+    def _generate_weekly_inbox(self, day_num: int) -> None:
+        team = self._user_team()
+        if team is None:
+            return
+
+        unresolved_count = sum(
+            1 for row in self.inbox_events
+            if int(row.get("season", 0)) == int(self.simulator.season_number) and not bool(row.get("resolved", False))
+        )
+        if unresolved_count >= 4:
+            return
+
+        records = self.simulator.get_standings()
+        team_record = next((r for r in records if r.team.name == team.name), None)
+        points_pct = (team_record.points / max(2, team_record.games_played * 2)) if team_record is not None else 0.5
+
+        injured = sorted([p for p in team.roster if p.is_injured], key=lambda p: p.injured_games_remaining, reverse=True)
+        if injured:
+            # Injury handling now lives in the Call Ups screen.
+            pass
+        elif points_pct < 0.52 or self.simulator._rng.random() < 0.30:
+            self._add_inbox_event(
+                day_num=day_num,
+                event_type="coach_pressure",
+                title="Coach Pressure Check-In",
+                details=f"Management wants direction after week {max(1, day_num // 7)}. Team form is under review.",
+                options=[
+                    {"id": "back_coach", "label": "Back Coach", "description": "Stability boost and longer runway."},
+                    {"id": "demand_results", "label": "Demand Results", "description": "Higher pressure, quicker accountability."},
+                ],
+                payload={},
+                auto_choice_id="demand_results" if points_pct < 0.47 else "back_coach",
+            )
+
+        # Secondary event lane: trade / waiver / prospect.
+        roll = self.simulator._rng.random()
+        if roll < 0.45 and len(self.simulator.teams) > 1:
+            partners = [t for t in self.simulator.teams if t.name != team.name and t.roster]
+            if partners and team.roster:
+                partner = self.simulator._rng.choice(partners)
+                give_pool = sorted([p for p in team.roster if p.position != "G"], key=self._player_overall)
+                recv_pool = sorted([p for p in partner.roster if p.position != "G"], key=self._player_overall, reverse=True)
+                if give_pool and recv_pool:
+                    give_player = give_pool[0]
+                    receive_player = recv_pool[0]
+                    self._add_inbox_event(
+                        day_num=day_num,
+                        event_type="trade_offer",
+                        title=f"Trade Offer: {partner.name}",
+                        details=f"{partner.name} offers {receive_player.name} for {give_player.name}.",
+                        options=[
+                            {"id": "accept_trade", "label": "Accept", "description": "Complete the 1-for-1 trade."},
+                            {"id": "reject_trade", "label": "Reject", "description": "Keep roster unchanged."},
+                        ],
+                        payload={
+                            "partner_team": partner.name,
+                            "give_player": give_player.name,
+                            "receive_player": receive_player.name,
+                        },
+                        auto_choice_id="reject_trade",
+                    )
+        elif roll < 0.75:
+            positions = ["C", "LW", "RW", "D", "G"]
+            pos = positions[int(self.simulator._rng.random() * len(positions))]
+            q = round(0.58 + self.simulator._rng.random() * 0.20, 3)
+            self._add_inbox_event(
+                day_num=day_num,
+                event_type="waiver",
+                title="Waiver Wire Alert",
+                details=f"A {pos} depth player is available on waivers this week.",
+                options=[
+                    {"id": "claim_waiver", "label": "Claim", "description": "Add to minor-league depth chart."},
+                    {"id": "pass_waiver", "label": "Pass", "description": "No roster action."},
+                ],
+                payload={"position": pos, "quality": q},
+                auto_choice_id="pass_waiver",
+            )
+        else:
+            prospects = [p for p in team.minor_roster if int(getattr(p, "seasons_to_nhl", 0)) > 0]
+            if prospects:
+                prospect = sorted(prospects, key=lambda p: (p.seasons_to_nhl, -p.prospect_potential))[0]
+                self._add_inbox_event(
+                    day_num=day_num,
+                    event_type="prospect",
+                    title=f"Prospect Update: {prospect.name}",
+                    details=f"Development staff asks for direction on {prospect.name} ({prospect.position}).",
+                    options=[
+                        {"id": "accelerate", "label": "Accelerate", "description": "Push timeline, slightly higher wear risk."},
+                        {"id": "steady", "label": "Steady Plan", "description": "Slow build with potential upside."},
+                    ],
+                    payload={"prospect_name": prospect.name},
+                    auto_choice_id="steady",
+                )
+
+        self._save_runtime_state()
+
+    def inbox(self, include_resolved: bool = False, limit: int = 60) -> list[dict[str, Any]]:
+        rows = [dict(row) for row in self.inbox_events]
+        if not include_resolved:
+            rows = [row for row in rows if not bool(row.get("resolved", False))]
+        rows = [row for row in rows if int(row.get("season", 0)) == int(self.simulator.season_number)]
+        return rows[: max(1, min(limit, 200))]
+
+    def resolve_inbox(self, event_id: int, choice_id: str) -> dict[str, Any]:
+        event = self._find_inbox_event(event_id)
+        if event is None:
+            raise HTTPException(status_code=404, detail="Inbox event not found")
+        if bool(event.get("resolved", False)):
+            return {"ok": True, "event": dict(event)}
+        option_ids = {str(opt.get("id", "")) for opt in event.get("options", []) if isinstance(opt, dict)}
+        if choice_id not in option_ids:
+            raise HTTPException(status_code=400, detail="Invalid inbox choice")
+        resolved = self._resolve_inbox_event_internal(event, choice_id=choice_id, auto=False)
+        self._save_runtime_state()
+        return {"ok": True, "event": dict(resolved)}
 
     def _add_news(
         self,
@@ -208,6 +503,23 @@ class SimService:
 
     def news(self, limit: int = 80) -> list[dict[str, Any]]:
         return [dict(row) for row in self.news_feed[: max(1, min(limit, 250))]]
+
+    def transactions(self, team_name: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
+        chosen = (team_name or self.user_team_name).strip()
+        if not chosen:
+            return []
+        out: list[dict[str, Any]] = []
+        for row in self.news_feed:
+            if str(row.get("kind", "")).lower() != "transaction":
+                continue
+            row_team = str(row.get("team", ""))
+            headline = str(row.get("headline", ""))
+            details = str(row.get("details", ""))
+            if row_team == chosen or chosen in headline or chosen in details:
+                out.append(dict(row))
+            if len(out) >= max(1, min(limit, 500)):
+                break
+        return out
 
     def _coach_history_totals(self) -> dict[str, dict[str, int]]:
         totals: dict[str, dict[str, int]] = {}
@@ -505,10 +817,149 @@ class SimService:
                         ),
                     }
                 )
+
+        # CPU trade window: limited weekly 1-for-1 trades with sanity checks.
+        cpu_teams = [t for t in self.simulator.teams if t.name != self.user_team_name]
+        attempted: set[str] = set()
+        max_trades = 2
+        trade_count = 0
+        for buyer in sorted(cpu_teams, key=lambda t: rec_map.get(t.name).point_pct if rec_map.get(t.name) is not None else 0.5):
+            if trade_count >= max_trades:
+                break
+            if buyer.name in attempted:
+                continue
+            rec_buyer = rec_map.get(buyer.name)
+            if rec_buyer is None or rec_buyer.games_played < 18:
+                continue
+            if rec_buyer.point_pct > 0.64:
+                continue
+
+            def _healthy_pos_players(team: Any, pos: str) -> list[Player]:
+                return [p for p in team.roster if p.position == pos and not p.is_injured]
+
+            need_positions = ["C", "LW", "RW", "D", "G"]
+            need_positions.sort(
+                key=lambda pos: (
+                    sum(self._player_overall(p) for p in _healthy_pos_players(buyer, pos)) / max(1, len(_healthy_pos_players(buyer, pos))),
+                    len(_healthy_pos_players(buyer, pos)),
+                )
+            )
+            target_pos = need_positions[0]
+            buyer_pool = sorted(_healthy_pos_players(buyer, target_pos), key=self._player_overall)
+            if not buyer_pool:
+                continue
+            buyer_out = buyer_pool[0]
+            buyer_score = self._player_overall(buyer_out)
+
+            best_deal: tuple[Any, Player, float] | None = None
+            for seller in cpu_teams:
+                if seller.name == buyer.name or seller.name in attempted:
+                    continue
+                seller_pool = sorted(_healthy_pos_players(seller, target_pos), key=self._player_overall, reverse=True)
+                if target_pos == "G" and len(seller_pool) < 2:
+                    continue
+                if target_pos in {"C", "LW", "RW"} and len(seller_pool) < 5:
+                    continue
+                if target_pos == "D" and len(seller_pool) < 4:
+                    continue
+                if not seller_pool:
+                    continue
+                # Avoid swapping obvious stars: pick seller's best *expendable* player.
+                candidate_idx = 1 if len(seller_pool) > 1 else 0
+                seller_out = seller_pool[candidate_idx]
+                seller_score = self._player_overall(seller_out)
+                gain = seller_score - buyer_score
+                if gain < 0.18 or gain > 0.95:
+                    continue
+                if best_deal is None or gain > best_deal[2]:
+                    best_deal = (seller, seller_out, gain)
+
+            if best_deal is None:
+                continue
+
+            seller, seller_out, gain = best_deal
+            # Buyer sends same-position depth piece back, preserving positional plausibility.
+            seller_return_pool = sorted([p for p in seller.roster if p.position == target_pos and not p.is_injured], key=self._player_overall)
+            buyer_return_pool = sorted([p for p in buyer.roster if p.position == target_pos and not p.is_injured], key=self._player_overall)
+            if not seller_return_pool or not buyer_return_pool:
+                continue
+            buyer_send = buyer_return_pool[0]
+            if buyer_send.name == buyer_out.name:
+                buyer_send = buyer_out
+            if seller_out.name == buyer_send.name:
+                continue
+
+            seller.roster.remove(seller_out)
+            buyer.roster.remove(buyer_send)
+            seller.roster.append(buyer_send)
+            buyer.roster.append(seller_out)
+            buyer_send.team_name = seller.name
+            seller_out.team_name = buyer.name
+            self.simulator.normalize_player_numbers()
+            buyer.set_default_lineup()
+            seller.set_default_lineup()
+
+            self._add_news(
+                kind="transaction",
+                headline=f"Trade: {buyer.name} acquired {seller_out.name} from {seller.name}",
+                details=f"{buyer.name} sent {buyer_send.name} to {seller.name}.",
+                team=buyer.name,
+                day=day,
+            )
+            moves.append(
+                {
+                    "type": "trade",
+                    "buyer": buyer.name,
+                    "seller": seller.name,
+                    "buyer_gets": seller_out.name,
+                    "seller_gets": buyer_send.name,
+                    "position": target_pos,
+                    "gain": round(gain, 3),
+                }
+            )
+            attempted.add(buyer.name)
+            attempted.add(seller.name)
+            trade_count += 1
         return moves
 
     def _team_slug(self, team_name: str) -> str:
         return team_name.lower().replace(" ", "_")
+
+    def _capture_roster_state(self) -> dict[str, dict[str, set[str]]]:
+        state: dict[str, dict[str, set[str]]] = {}
+        for team in self.simulator.teams:
+            state[team.name] = {
+                "roster": {p.name for p in team.roster},
+                "minors": {p.name for p in team.minor_roster},
+            }
+        return state
+
+    def _log_auto_roster_transactions(self, before: dict[str, dict[str, set[str]]], day_num: int) -> None:
+        for team in self.simulator.teams:
+            prev = before.get(team.name, {"roster": set(), "minors": set()})
+            prev_roster = prev.get("roster", set())
+            prev_minors = prev.get("minors", set())
+            curr_roster = {p.name for p in team.roster}
+            curr_minors = {p.name for p in team.minor_roster}
+
+            recalls = sorted(list((curr_roster - prev_roster) & prev_minors))
+            assigns = sorted(list((curr_minors - prev_minors) & prev_roster))
+            for name in recalls:
+                self._add_news(
+                    kind="transaction",
+                    headline=f"Transaction: {team.name} recalled {name}",
+                    details=f"{name} was promoted from minors to active roster.",
+                    team=team.name,
+                    day=day_num,
+                )
+            for name in assigns:
+                self._add_news(
+                    kind="transaction",
+                    headline=f"Transaction: {team.name} assigned {name}",
+                    details=f"{name} was moved to the minor-league club.",
+                    team=team.name,
+                    day=day_num,
+                )
 
     def _flag_emoji(self, country_code: str) -> str:
         code = country_code.upper().strip()
@@ -539,6 +990,7 @@ class SimService:
         return {
             "team": player.team_name,
             "name": player.name,
+            "jersey_number": player.jersey_number,
             "position": player.position,
             "age": player.age,
             "height": f"{feet}' {inches}\"",
@@ -872,6 +1324,7 @@ class SimService:
         return {
             "team": player.team_name,
             "name": player.name,
+            "jersey_number": player.jersey_number,
             "country": player.birth_country,
             "country_code": country_code,
             "flag": self._flag_emoji(country_code),
@@ -895,14 +1348,29 @@ class SimService:
         }
 
     def _cup_count(self, team_name: str) -> int:
-        return sum(1 for s in self.simulator.season_history if str(s.get("champion", "")) == team_name)
+        return sum(1 for s in self.simulator.season_history if self._season_champion(s) == team_name)
 
     def _cup_seasons(self, team_name: str) -> list[int]:
         seasons: list[int] = []
         for season in self.simulator.season_history:
-            if str(season.get("champion", "")) == team_name:
+            if self._season_champion(season) == team_name:
                 seasons.append(int(season.get("season", 0)))
         return seasons
+
+    def _season_champion(self, season: object) -> str:
+        if not isinstance(season, dict):
+            return ""
+        for key in ("champion", "cup_champion"):
+            name = str(season.get(key, "")).strip()
+            if name:
+                return name
+        playoffs = season.get("playoffs", {})
+        if isinstance(playoffs, dict):
+            for key in ("champion", "cup_champion"):
+                name = str(playoffs.get(key, "")).strip()
+                if name:
+                    return name
+        return ""
 
     def _serialize_playoff_games(self, games: list[dict[str, Any]], round_name: str) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
@@ -1007,6 +1475,7 @@ class SimService:
         return {
             "team": player.team_name,
             "name": player.name,
+            "jersey_number": player.jersey_number,
             "country": player.birth_country,
             "country_code": country_code,
             "flag": self._flag_emoji(country_code),
@@ -1040,6 +1509,7 @@ class SimService:
             country_code = str(p.birth_country_code or "CA").upper()
             return {
                 "name": p.name,
+                "jersey_number": p.jersey_number,
                 "pos": p.position,
                 "country": p.birth_country,
                 "country_code": country_code,
@@ -1272,6 +1742,7 @@ class SimService:
                 {
                     "team": team.name,
                     "name": p.name,
+                    "jersey_number": p.jersey_number,
                     "position": p.position,
                     "age": p.age,
                     "country": p.birth_country,
@@ -1347,6 +1818,9 @@ class SimService:
 
     def _current_career_row(self, player: Player) -> dict[str, Any]:
         country_code = str(player.birth_country_code or "CA").upper()
+        standings = {r.team.name: r for r in self.simulator.get_standings()}
+        team_goal_diff = standings.get(player.team_name).goal_diff if standings.get(player.team_name) is not None else 0.0
+        skater_view = self._player_to_dict(player, team_goal_diff=team_goal_diff) if player.position not in GOALIE_POSITIONS else None
         return {
             "season": self.simulator.season_number,
             "team": player.team_name,
@@ -1366,6 +1840,15 @@ class SimService:
             "goalie_l": player.goalie_losses,
             "goalie_otl": player.goalie_ot_losses,
             "goalie_so": player.goalie_shutouts,
+            "plus_minus": int(skater_view["plus_minus"]) if skater_view is not None else 0,
+            "pim": int(skater_view["pim"]) if skater_view is not None else 0,
+            "toi_g": float(skater_view["toi_g"]) if skater_view is not None else 0.0,
+            "ppg": int(skater_view["ppg"]) if skater_view is not None else 0,
+            "ppa": int(skater_view["ppa"]) if skater_view is not None else 0,
+            "shg": int(skater_view["shg"]) if skater_view is not None else 0,
+            "sha": int(skater_view["sha"]) if skater_view is not None else 0,
+            "shots": int(skater_view["shots"]) if skater_view is not None else 0,
+            "shot_pct": float(skater_view["shot_pct"]) if skater_view is not None else 0.0,
             "gaa": round(player.gaa, 2),
             "sv_pct": round(player.save_pct, 3),
             "is_current": True,
@@ -1386,19 +1869,152 @@ class SimService:
         if player.draft_overall is not None and player.draft_round is not None and player.draft_season is not None:
             draft_label = f"S{player.draft_season} R{player.draft_round} #{player.draft_overall} ({player.draft_team or team.name})"
         country_code = str(player.birth_country_code or "CA").upper()
+        bio = self._player_bio_row(player)
+        def _career_row_with_defaults(row: dict[str, Any]) -> dict[str, Any]:
+            out = dict(row)
+            out.setdefault("plus_minus", 0)
+            out.setdefault("pim", 0)
+            out.setdefault("toi_g", 0.0)
+            out.setdefault("ppg", 0)
+            out.setdefault("ppa", 0)
+            out.setdefault("shg", 0)
+            out.setdefault("sha", 0)
+            out.setdefault("shots", 0)
+            out.setdefault("shot_pct", 0.0)
+            out.setdefault("goalie_so", 0)
+            return out
         return {
             "player": {
                 "team": player.team_name,
                 "name": player.name,
+                "jersey_number": player.jersey_number,
                 "age": player.age,
                 "position": player.position,
                 "country": player.birth_country,
                 "country_code": country_code,
                 "flag": self._flag_emoji(country_code),
                 "draft_label": draft_label,
+                "height": bio.get("height", ""),
+                "weight_lbs": bio.get("weight_lbs", 0),
+                "shot": bio.get("shot", ""),
+                "birth_place": bio.get("birth_place", ""),
+                "birthdate": bio.get("birthdate", ""),
+                "ratings": {
+                    "shooting": round(player.shooting, 2),
+                    "playmaking": round(player.playmaking, 2),
+                    "defense": round(player.defense, 2),
+                    "goaltending": round(player.goaltending, 2),
+                    "physical": round(player.physical, 2),
+                    "durability": round(player.durability, 2),
+                },
             },
-            "career": [self._current_career_row(player), *history_rows],
+            "career": [_career_row_with_defaults(self._current_career_row(player)), *[_career_row_with_defaults(r) for r in history_rows]],
         }
+
+    def callups(self, team_name: str | None = None) -> dict[str, Any]:
+        chosen = (team_name or self.user_team_name).strip()
+        if not chosen:
+            raise HTTPException(status_code=400, detail="No team selected")
+        team = self.simulator.get_team(chosen)
+        if team is None:
+            raise HTTPException(status_code=404, detail="Team not found")
+
+        injuries = [
+            {
+                "name": p.name,
+                "jersey_number": p.jersey_number,
+                "position": p.position,
+                "games_out": p.injured_games_remaining,
+            }
+            for p in sorted(team.roster, key=lambda x: (-x.injured_games_remaining, x.name))
+            if p.is_injured
+        ]
+
+        roster_rows = []
+        for p in sorted(team.roster, key=lambda x: (x.position, x.name)):
+            roster_rows.append(
+                {
+                    "name": p.name,
+                    "jersey_number": p.jersey_number,
+                    "position": p.position,
+                    "age": p.age,
+                    "injured": p.is_injured,
+                    "games_out": p.injured_games_remaining,
+                    "dressed": team.is_dressed(p),
+                    "overall": round(
+                        p.goaltending
+                        if p.position in GOALIE_POSITIONS
+                        else (p.shooting * 0.36 + p.playmaking * 0.30 + p.defense * 0.24 + p.physical * 0.10),
+                        2,
+                    ),
+                }
+            )
+
+        minor_rows = []
+        for p in sorted(team.minor_roster, key=lambda x: (x.position, x.name)):
+            minor_rows.append(
+                {
+                    "name": p.name,
+                    "jersey_number": p.jersey_number,
+                    "position": p.position,
+                    "age": p.age,
+                    "injured": p.is_injured,
+                    "games_out": p.injured_games_remaining,
+                    "tier": p.prospect_tier,
+                    "seasons_to_nhl": p.seasons_to_nhl,
+                    "overall": round(
+                        p.goaltending
+                        if p.position in GOALIE_POSITIONS
+                        else (p.shooting * 0.36 + p.playmaking * 0.30 + p.defense * 0.24 + p.physical * 0.10),
+                        2,
+                    ),
+                }
+            )
+
+        return {
+            "team": team.name,
+            "injuries": injuries,
+            "roster": roster_rows,
+            "minors": minor_rows,
+        }
+
+    def callup_promote(self, team_name: str | None, player_name: str) -> dict[str, Any]:
+        chosen = (team_name or self.user_team_name).strip()
+        if not chosen:
+            raise HTTPException(status_code=400, detail="No team selected")
+        if chosen != self.user_team_name:
+            raise HTTPException(status_code=403, detail="Can only manage call ups for your team")
+        ok = self.simulator.promote_minor_player(chosen, player_name)
+        if not ok:
+            raise HTTPException(status_code=400, detail="Unable to call up player")
+        self._add_news(
+            kind="transaction",
+            headline=f"Transaction: {chosen} recalled {player_name}",
+            details=f"{player_name} was called up from the minor league club.",
+            team=chosen,
+            day=self.simulator.current_day,
+        )
+        self._save_runtime_state()
+        return {"ok": True, "team": chosen, "player": player_name}
+
+    def callup_demote(self, team_name: str | None, player_name: str) -> dict[str, Any]:
+        chosen = (team_name or self.user_team_name).strip()
+        if not chosen:
+            raise HTTPException(status_code=400, detail="No team selected")
+        if chosen != self.user_team_name:
+            raise HTTPException(status_code=403, detail="Can only manage call ups for your team")
+        ok = self.simulator.demote_roster_player(chosen, player_name)
+        if not ok:
+            raise HTTPException(status_code=400, detail="Unable to send player down")
+        self._add_news(
+            kind="transaction",
+            headline=f"Transaction: {chosen} assigned {player_name}",
+            details=f"{player_name} was sent down to the minor league club.",
+            team=chosen,
+            day=self.simulator.current_day,
+        )
+        self._save_runtime_state()
+        return {"ok": True, "team": chosen, "player": player_name}
 
     def _fan_sentiment(self, team_name: str, recent_games: list[dict[str, Any]]) -> dict[str, Any]:
         if not recent_games:
@@ -1545,7 +2161,7 @@ class SimService:
             return ("N", "-")
         appeared = False
         best_stage = 0
-        champion = str(season.get("champion", "")) == team_name
+        champion = self._season_champion(season) == team_name
         if champion:
             return ("Y", "Champion")
         for round_row in rounds:
@@ -1660,6 +2276,232 @@ class SimService:
                     leaders[team_name] = (name, points)
         return leaders
 
+    def _career_player_totals(self) -> list[dict[str, Any]]:
+        rows: dict[str, dict[str, Any]] = {}
+
+        for entry in self.simulator.hall_of_fame:
+            if not isinstance(entry, dict):
+                continue
+            player_id = str(entry.get("player_id", "")).strip()
+            if not player_id:
+                continue
+            row = rows.setdefault(
+                player_id,
+                {
+                    "player_id": player_id,
+                    "name": str(entry.get("name", "")).strip(),
+                    "team": str(entry.get("team_at_retirement", "")).strip(),
+                    "position": str(entry.get("position", "")).strip(),
+                    "status": "Retired",
+                    "gp": 0,
+                    "g": 0,
+                    "a": 0,
+                    "p": 0,
+                    "pim": 0,
+                    "goalie_w": 0,
+                    "goalie_so": 0,
+                },
+            )
+            row["name"] = str(entry.get("name", row["name"])).strip()
+            row["team"] = str(entry.get("team_at_retirement", row["team"])).strip()
+            row["position"] = str(entry.get("position", row["position"])).strip()
+            row["gp"] = max(int(row["gp"]), int(entry.get("career_gp", 0)))
+            row["g"] = max(int(row["g"]), int(entry.get("career_g", 0)))
+            row["a"] = max(int(row["a"]), int(entry.get("career_a", 0)))
+            row["p"] = max(int(row["p"]), int(entry.get("career_p", 0)))
+            row["goalie_w"] = max(int(row["goalie_w"]), int(entry.get("goalie_w", 0)))
+            row["goalie_so"] = max(int(row["goalie_so"]), int(entry.get("goalie_so", 0)))
+
+        for team in self.simulator.teams:
+            for player in [*team.roster, *team.minor_roster]:
+                pid = str(player.player_id)
+                season_rows = [s for s in player.career_seasons if isinstance(s, dict)]
+                gp = sum(int(s.get("gp", 0)) for s in season_rows) + int(player.games_played)
+                goals = sum(int(s.get("g", 0)) for s in season_rows) + int(player.goals)
+                assists = sum(int(s.get("a", 0)) for s in season_rows) + int(player.assists)
+                points = sum(int(s.get("p", 0)) for s in season_rows) + int(player.points)
+                pim = sum(int(s.get("pim", 0)) for s in season_rows)
+                goalie_w = sum(int(s.get("goalie_w", 0)) for s in season_rows) + int(player.goalie_wins)
+                goalie_so = sum(int(s.get("goalie_so", 0)) for s in season_rows) + int(player.goalie_shutouts)
+
+                row = rows.setdefault(
+                    pid,
+                    {
+                        "player_id": pid,
+                        "name": player.name,
+                        "team": team.name,
+                        "position": player.position,
+                        "status": "Active",
+                        "gp": 0,
+                        "g": 0,
+                        "a": 0,
+                        "p": 0,
+                        "pim": 0,
+                        "goalie_w": 0,
+                        "goalie_so": 0,
+                    },
+                )
+                row["name"] = player.name
+                row["team"] = team.name
+                row["position"] = player.position
+                row["status"] = "Active"
+                row["gp"] = max(int(row["gp"]), gp)
+                row["g"] = max(int(row["g"]), goals)
+                row["a"] = max(int(row["a"]), assists)
+                row["p"] = max(int(row["p"]), points)
+                row["pim"] = max(int(row["pim"]), pim)
+                row["goalie_w"] = max(int(row["goalie_w"]), goalie_w)
+                row["goalie_so"] = max(int(row["goalie_so"]), goalie_so)
+
+        return list(rows.values())
+
+    def records(self, team_name: str | None = None) -> dict[str, Any]:
+        selected_team = (team_name or self.user_team_name).strip()
+        all_rows = self._career_player_totals()
+
+        categories = [
+            ("career_goals", "Career Goals", "g"),
+            ("career_assists", "Career Assists", "a"),
+            ("career_points", "Career Points", "p"),
+            ("career_gp", "Career Games", "gp"),
+            ("career_pim", "Career PIM", "pim"),
+            ("career_goalie_wins", "Career Goalie Wins", "goalie_w"),
+            ("career_shutouts", "Career Shutouts", "goalie_so"),
+        ]
+
+        def _top(rows: list[dict[str, Any]], stat_key: str, limit: int = 10) -> list[dict[str, Any]]:
+            ranked = [r for r in rows if int(r.get(stat_key, 0)) > 0]
+            ranked.sort(
+                key=lambda r: (
+                    int(r.get(stat_key, 0)),
+                    str(r.get("name", "")),
+                ),
+                reverse=True,
+            )
+            return [
+                {
+                    "name": str(r.get("name", "")),
+                    "team": str(r.get("team", "")),
+                    "position": str(r.get("position", "")),
+                    "status": str(r.get("status", "")),
+                    "value": int(r.get(stat_key, 0)),
+                }
+                for r in ranked[:limit]
+            ]
+
+        league_tables = [
+            {
+                "key": key,
+                "label": label,
+                "rows": _top(all_rows, stat),
+            }
+            for key, label, stat in categories
+        ]
+
+        franchise_rows = [r for r in all_rows if str(r.get("team", "")) == selected_team] if selected_team else []
+        franchise_tables = [
+            {
+                "key": key,
+                "label": label,
+                "rows": _top(franchise_rows, stat),
+            }
+            for key, label, stat in categories
+        ]
+
+        return {
+            "team": selected_team,
+            "league": league_tables,
+            "franchise": franchise_tables,
+        }
+
+    def banners(self, team_name: str | None = None) -> dict[str, Any]:
+        selected_team = (team_name or self.user_team_name).strip()
+        if not selected_team:
+            raise HTTPException(status_code=400, detail="No team selected")
+        team = self.simulator.get_team(selected_team)
+        if team is None:
+            raise HTTPException(status_code=404, detail="Team not found")
+
+        def _rank_key(row: dict[str, Any]) -> tuple[int, int, int, str]:
+            return (
+                int(row.get("points", 0)),
+                int(row.get("wins", 0)),
+                int(row.get("gd", 0)),
+                str(row.get("team", "")),
+            )
+
+        banners: list[dict[str, Any]] = []
+        seen: set[tuple[int, str]] = set()
+        for season in self.simulator.season_history:
+            if not isinstance(season, dict):
+                continue
+            season_no = int(season.get("season", 0))
+            standings = season.get("standings", [])
+            if not isinstance(standings, list):
+                continue
+            rows = [r for r in standings if isinstance(r, dict)]
+            team_row = next((r for r in rows if str(r.get("team", "")) == selected_team), None)
+            if team_row is None:
+                continue
+
+            def _add_banner(kind: str, title: str) -> None:
+                key = (season_no, kind)
+                if key in seen:
+                    return
+                seen.add(key)
+                banners.append(
+                    {
+                        "season": season_no,
+                        "kind": kind,
+                        "title": title,
+                        "team": selected_team,
+                    }
+                )
+
+            if self._season_champion(season) == selected_team:
+                _add_banner("cup", "Founders Cup Champions")
+
+            sorted_league = sorted(rows, key=_rank_key, reverse=True)
+            if sorted_league and str(sorted_league[0].get("team", "")) == selected_team:
+                _add_banner("league_best", "Best Record In League")
+
+            team_division = str(team_row.get("division", ""))
+            division_rows = [r for r in rows if str(r.get("division", "")) == team_division]
+            sorted_division = sorted(division_rows, key=_rank_key, reverse=True)
+            if sorted_division and str(sorted_division[0].get("team", "")) == selected_team:
+                _add_banner("division", f"{team_division} Division Champions")
+
+            playoffs = season.get("playoffs", {})
+            if isinstance(playoffs, dict):
+                rounds = playoffs.get("rounds", [])
+                if isinstance(rounds, list):
+                    for round_row in rounds:
+                        if not isinstance(round_row, dict):
+                            continue
+                        round_name = str(round_row.get("name", "")).strip()
+                        if "Conference Final" not in round_name:
+                            continue
+                        series_rows = round_row.get("series", [])
+                        if not isinstance(series_rows, list):
+                            continue
+                        for series in series_rows:
+                            if not isinstance(series, dict):
+                                continue
+                            if str(series.get("winner", "")) != selected_team:
+                                continue
+                            conference_label = round_name.replace(" Final", "").strip()
+                            _add_banner("conference", f"{conference_label} Champions")
+                            break
+
+        banners.sort(key=lambda r: int(r.get("season", 0)), reverse=True)
+        return {
+            "team": selected_team,
+            "logo_url": f"/api/team-logo/{self._team_slug(selected_team)}",
+            "primary_color": getattr(team, "primary_color", "#1f3a93"),
+            "secondary_color": getattr(team, "secondary_color", "#d7e1f5"),
+            "banners": banners,
+        }
+
     def cup_history(self) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         for season in sorted(
@@ -1668,7 +2510,7 @@ class SimService:
             reverse=True,
         ):
             season_no = int(season.get("season", 0))
-            winner = str(season.get("champion", "")).strip()
+            winner = self._season_champion(season)
             playoffs = season.get("playoffs", {})
             runner_up = ""
             if isinstance(playoffs, dict):
@@ -1776,7 +2618,7 @@ class SimService:
                     "playoff": playoffs_made,
                     "playoff_result": playoff_result,
                     "conference_champ": "Y" if playoff_result == "Cup Final" else "",
-                    "cup_winner": "Y" if str(season.get("champion", "")) == team_name else "",
+                    "cup_winner": "Y" if self._season_champion(season) == team_name else "",
                 }
             )
 
@@ -1802,7 +2644,7 @@ class SimService:
                     "otl": row.get("ot_losses", 0),
                     "pts": row.get("points", 0),
                     "point_pct": row.get("point_pct", 0.0),
-                    "champion": "Y" if str(season.get("champion", "")) == team_name else "",
+                    "champion": "Y" if self._season_champion(season) == team_name else "",
                 }
             )
 
@@ -1858,6 +2700,8 @@ class SimService:
 
         if not self.simulator.is_complete():
             day_num = self.simulator.current_day
+            self._expire_inbox_events(day_num=day_num)
+            roster_before = self._capture_roster_state()
             results = self.simulator.simulate_next_day(
                 user_team_name=self.user_team_name,
                 user_strategy=self.user_strategy,
@@ -1865,6 +2709,7 @@ class SimService:
                 use_user_strategy=self.override_coach_for_strategy,
             )
             self._injury_news_from_results(day_num=day_num, results=results)
+            self._log_auto_roster_transactions(before=roster_before, day_num=day_num)
             serialized = self._serialize_games(results)
             self.daily_results = [
                 d
@@ -1882,6 +2727,8 @@ class SimService:
                     "games": serialized,
                 }
             )
+            if day_num % 7 == 0:
+                self._generate_weekly_inbox(day_num=day_num)
             gm_moves = self._cpu_gm_review(day=day_num, phase="regular")
             self._save_runtime_state()
             return {
@@ -2207,7 +3054,14 @@ class SimService:
         return payload
 
     def reset(self) -> dict[str, Any]:
-        temp = LeagueSimulator(teams=build_default_teams(), games_per_matchup=2)
+        temp = LeagueSimulator(
+            teams=build_default_teams(),
+            games_per_matchup=2,
+            history_path=str(self.data_root / "season_history.json"),
+            career_history_path=str(self.data_root / "career_history.json"),
+            hall_of_fame_path=str(self.data_root / "hall_of_fame.json"),
+            state_path=str(self.data_root / "league_state.json"),
+        )
         temp.reset_persistent_history()
         self._init_fresh_state()
         try:
@@ -2357,6 +3211,18 @@ def reset() -> dict[str, Any]:
         return service.reset()
 
 
+@app.get("/api/inbox")
+def inbox(resolved: bool = False, limit: int = 60) -> list[dict[str, Any]]:
+    with service._lock:
+        return service.inbox(include_resolved=resolved, limit=limit)
+
+
+@app.post("/api/inbox/resolve")
+def resolve_inbox(payload: InboxResolveSelection) -> dict[str, Any]:
+    with service._lock:
+        return service.resolve_inbox(event_id=payload.event_id, choice_id=payload.choice_id)
+
+
 @app.post("/api/fire-coach")
 def fire_coach(team: str | None = None, hire: str | None = None) -> dict[str, Any]:
     with service._lock:
@@ -2404,6 +3270,24 @@ def minor_league(team: str | None = None) -> list[dict[str, Any]]:
         return service.minor_league(team_name=team)
 
 
+@app.get("/api/callups")
+def callups(team: str | None = None) -> dict[str, Any]:
+    with service._lock:
+        return service.callups(team_name=team)
+
+
+@app.post("/api/callups/promote")
+def callups_promote(payload: CallupSelection) -> dict[str, Any]:
+    with service._lock:
+        return service.callup_promote(team_name=payload.team_name, player_name=payload.player_name)
+
+
+@app.post("/api/callups/demote")
+def callups_demote(payload: CallupSelection) -> dict[str, Any]:
+    with service._lock:
+        return service.callup_demote(team_name=payload.team_name, player_name=payload.player_name)
+
+
 @app.get("/api/roster")
 def roster(team: str | None = None) -> dict[str, Any]:
     with service._lock:
@@ -2440,6 +3324,18 @@ def franchise(team: str) -> dict[str, Any]:
         return service.franchise(team_name=team)
 
 
+@app.get("/api/records")
+def records(team: str | None = None) -> dict[str, Any]:
+    with service._lock:
+        return service.records(team_name=team)
+
+
+@app.get("/api/banners")
+def banners(team: str | None = None) -> dict[str, Any]:
+    with service._lock:
+        return service.banners(team_name=team)
+
+
 @app.get("/api/cup-history")
 def cup_history() -> list[dict[str, Any]]:
     with service._lock:
@@ -2468,3 +3364,9 @@ def set_draft_need(payload: DraftNeedSelection) -> dict[str, Any]:
 def news(limit: int = 80) -> list[dict[str, Any]]:
     with service._lock:
         return service.news(limit=limit)
+
+
+@app.get("/api/transactions")
+def transactions(team: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
+    with service._lock:
+        return service.transactions(team_name=team, limit=limit)
