@@ -551,18 +551,18 @@ export default function App() {
   }, [players]);
 
   function trendArrow(trend?: string): string {
-    if (trend === "Rising") return "^";
-    if (trend === "Falling") return "v";
-    return "-";
+    if (trend === "Rising") return "\u25B2";
+    if (trend === "Falling") return "\u25BC";
+    return "\u25A0";
   }
 
   function moodFace(mood?: string): string {
     const m = (mood ?? "").toLowerCase();
-    if (m.includes("buzz") || m.includes("locked")) return ":D";
-    if (m.includes("optim") || m.includes("confident")) return ":)";
-    if (m.includes("steady") || m.includes("neutral")) return ":|";
-    if (m.includes("restless") || m.includes("tense")) return ":/";
-    return ":(";
+    if (m.includes("buzz") || m.includes("locked")) return "\uD83D\uDE04";
+    if (m.includes("optim") || m.includes("confident")) return "\uD83D\uDE42";
+    if (m.includes("steady") || m.includes("neutral")) return "\uD83D\uDE10";
+    if (m.includes("restless") || m.includes("tense")) return "\uD83D\uDE1F";
+    return "\uD83D\uDE20";
   }
 
   async function loadMeta() {
