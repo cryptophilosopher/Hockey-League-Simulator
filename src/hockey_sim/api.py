@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import random
 from pathlib import Path
 from threading import Lock
 from typing import Any
@@ -14,6 +15,7 @@ from .engine import GameResult
 from .league import LeagueSimulator
 from .models import (
     ALL_LINE_SLOTS,
+    GOALIE_POSITIONS,
     Player,
     TeamRecord,
 )
@@ -42,6 +44,11 @@ class LinesSelection(BaseModel):
     assignments: dict[str, str] = {}
 
 
+class DraftNeedSelection(BaseModel):
+    focus: str = "auto"
+    team_name: str | None = None
+
+
 class SimService:
     def __init__(self) -> None:
         self._init_fresh_state()
@@ -54,9 +61,105 @@ class SimService:
         self.user_strategy = "balanced"
         self.override_coach_for_lines = False
         self.override_coach_for_strategy = False
-        self.game_mode = "both"
+        self.game_mode = "gm"
         self.daily_results: list[dict[str, Any]] = []
+        self.news_feed: list[dict[str, Any]] = []
         self.coach_pool: list[dict[str, Any]] = self._build_initial_coach_pool()
+
+    def _add_news(
+        self,
+        kind: str,
+        headline: str,
+        details: str = "",
+        team: str | None = None,
+        season: int | None = None,
+        day: int | None = None,
+    ) -> None:
+        row = {
+            "kind": kind,
+            "headline": headline,
+            "details": details,
+            "team": team or "",
+            "season": int(self.simulator.season_number if season is None else season),
+            "day": int(day or 0),
+        }
+        self.news_feed.insert(0, row)
+        self.news_feed = self.news_feed[:250]
+
+    def _injury_news_from_results(self, day_num: int, results: list[GameResult]) -> None:
+        for result in results:
+            for inj in result.home_injuries:
+                self._add_news(
+                    kind="injury",
+                    headline=f"Injury: {inj.player.name} ({result.home.name})",
+                    details=f"Expected out {inj.games_out} games after vs {result.away.name}.",
+                    team=result.home.name,
+                    day=day_num,
+                )
+            for inj in result.away_injuries:
+                self._add_news(
+                    kind="injury",
+                    headline=f"Injury: {inj.player.name} ({result.away.name})",
+                    details=f"Expected out {inj.games_out} games after at {result.home.name}.",
+                    team=result.away.name,
+                    day=day_num,
+                )
+
+    def _draft_news_from_offseason(
+        self,
+        completed_season: int,
+        drafted_details: dict[str, list[dict[str, object]]],
+    ) -> None:
+        display_season = completed_season + 1
+        picks: list[tuple[int, str, str, int]] = []
+        for team_name, rows in drafted_details.items():
+            if not isinstance(rows, list):
+                continue
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                overall = int(row.get("overall") or 0)
+                round_no = int(row.get("round") or 0)
+                name = str(row.get("name", "")).strip()
+                if overall <= 0 or round_no <= 0 or not name:
+                    continue
+                picks.append((overall, team_name, name, round_no))
+        picks.sort(key=lambda x: x[0])
+        for overall, team_name, name, round_no in picks[:24]:
+            self._add_news(
+                kind="draft",
+                headline=f"Draft: Pick #{overall} {name} to {team_name}",
+                details=f"Season {completed_season} Entry Draft Round {round_no}.",
+                team=team_name,
+                season=display_season,
+                day=0,
+            )
+
+        user_team = str(self.user_team_name).strip()
+        if user_team and isinstance(drafted_details.get(user_team), list):
+            user_rows = [r for r in drafted_details.get(user_team, []) if isinstance(r, dict)]
+            if user_rows:
+                user_rows = sorted(user_rows, key=lambda r: int(r.get("overall") or 0))
+                summary_parts: list[str] = []
+                for row in user_rows[:6]:
+                    name = str(row.get("name", "")).strip()
+                    pos = str(row.get("position", "")).strip()
+                    overall = int(row.get("overall") or 0)
+                    if not name or overall <= 0:
+                        continue
+                    summary_parts.append(f"#{overall} {name} ({pos})")
+                if summary_parts:
+                    self._add_news(
+                        kind="draft",
+                        headline=f"{user_team} Draft Class",
+                        details=", ".join(summary_parts),
+                        team=user_team,
+                        season=display_season,
+                        day=0,
+                    )
+
+    def news(self, limit: int = 80) -> list[dict[str, Any]]:
+        return [dict(row) for row in self.news_feed[: max(1, min(limit, 250))]]
 
     def _coach_history_totals(self) -> dict[str, dict[str, int]]:
         totals: dict[str, dict[str, int]] = {}
@@ -122,8 +225,249 @@ class SimService:
         pool.sort(key=lambda c: (int(c.get("cups", 0)), float(c.get("rating", 0.0))), reverse=True)
         return pool
 
+    def _active_coach_names(self) -> set[str]:
+        return {str(t.coach_name) for t in self.simulator.teams}
+
+    def _coach_cup_count(self, coach_name: str) -> int:
+        return int(
+            sum(
+                1
+                for season in self.simulator.season_history
+                for row in season.get("coaches", [])
+                if isinstance(row, dict)
+                and str(row.get("coach", "")) == coach_name
+                and bool(row.get("champion", False))
+            )
+        )
+
+    def _ensure_coach_pool_depth(self, min_size: int = 14) -> None:
+        active = self._active_coach_names()
+        seen: set[str] = set()
+        clean_pool: list[dict[str, Any]] = []
+        for row in self.coach_pool:
+            name = str(row.get("name", "")).strip()
+            if not name or name in active or name in seen:
+                continue
+            seen.add(name)
+            clean_pool.append(row)
+        self.coach_pool = clean_pool
+
+        while len(self.coach_pool) < min_size:
+            rating = self.simulator._generate_coach_rating(lower=2.2, upper=4.8)
+            name = self.simulator._generate_coach_name()
+            if name in active or any(str(c.get("name", "")) == name for c in self.coach_pool):
+                continue
+            self.coach_pool.append(
+                {
+                    "name": name,
+                    "rating": rating,
+                    "style": self.simulator._rating_to_style(rating),
+                    "offense": self.simulator._generate_coach_rating(lower=2.0, upper=4.9),
+                    "defense": self.simulator._generate_coach_rating(lower=2.0, upper=4.9),
+                    "goalie_dev": self.simulator._generate_coach_rating(lower=2.0, upper=4.9),
+                    "w": 0,
+                    "l": 0,
+                    "otl": 0,
+                    "cups": 0,
+                    "source": "new",
+                }
+            )
+        self.coach_pool.sort(key=lambda c: (int(c.get("cups", 0)), float(c.get("rating", 0.0))), reverse=True)
+
+    def _replace_team_coach(
+        self,
+        team_name: str,
+        hire_name: str | None = None,
+        source: str = "fired",
+    ) -> dict[str, Any]:
+        team = self.simulator.get_team(team_name)
+        if team is None:
+            raise HTTPException(status_code=404, detail="Team not found")
+        standings_map = {rec.team.name: rec for rec in self.simulator.get_standings()}
+        rec = standings_map.get(team_name)
+
+        old_name = team.coach_name
+        old_rating = float(team.coach_rating)
+        fired_row = {
+            "name": old_name,
+            "rating": round(old_rating, 2),
+            "style": team.coach_style,
+            "offense": round(team.coach_offense, 2),
+            "defense": round(team.coach_defense, 2),
+            "goalie_dev": round(team.coach_goalie_dev, 2),
+            "w": int(rec.wins if rec is not None else 0),
+            "l": int(rec.losses if rec is not None else 0),
+            "otl": int(rec.ot_losses if rec is not None else 0),
+            "cups": self._coach_cup_count(old_name),
+            "source": source,
+        }
+        if all(str(c.get("name", "")) != old_name for c in self.coach_pool):
+            self.coach_pool.append(fired_row)
+
+        self._ensure_coach_pool_depth()
+        active_names = self._active_coach_names()
+        available = [c for c in self.coach_pool if str(c.get("name", "")) not in active_names]
+        if hire_name:
+            hire = next((c for c in available if str(c.get("name", "")) == hire_name), None)
+            if hire is None:
+                raise HTTPException(status_code=404, detail="Selected coach not found in candidate pool")
+        else:
+            if not available:
+                self._ensure_coach_pool_depth(min_size=18)
+                active_names = self._active_coach_names()
+                available = [c for c in self.coach_pool if str(c.get("name", "")) not in active_names]
+            if not available:
+                raise HTTPException(status_code=400, detail="No available coaches")
+            top_pool = sorted(
+                available,
+                key=lambda c: (int(c.get("cups", 0)), float(c.get("rating", 0.0))),
+                reverse=True,
+            )[:6]
+            rng = getattr(self.simulator, "_rng", random.Random())
+            hire = rng.choice(top_pool)
+
+        self.coach_pool = [c for c in self.coach_pool if str(c.get("name", "")) != str(hire.get("name", ""))]
+        team.coach_name = str(hire.get("name", "Coach"))
+        team.coach_rating = float(hire.get("rating", 3.0))
+        team.coach_style = str(hire.get("style", "balanced"))
+        team.coach_offense = float(hire.get("offense", team.coach_rating))
+        team.coach_defense = float(hire.get("defense", team.coach_rating))
+        team.coach_goalie_dev = float(hire.get("goalie_dev", team.coach_rating))
+        team.coach_tenure_seasons = 0
+        team.coach_changes_recent = min(5.0, max(0.0, team.coach_changes_recent) + 1.0)
+        team.coach_honeymoon_games_remaining = 24
+        team.set_default_lineup()
+        self.simulator._save_state()
+        self._add_news(
+            kind="coach_change",
+            headline=f"Coach Change: {team.name}",
+            details=f"{old_name} out, {team.coach_name} hired.",
+            team=team.name,
+            day=int(self.simulator.current_day),
+        )
+        return {
+            "team": team.name,
+            "old_name": old_name,
+            "old_rating": round(old_rating, 2),
+            "new_name": team.coach_name,
+            "new_rating": round(team.coach_rating, 2),
+            "new_style": team.coach_style,
+            "new_offense": round(team.coach_offense, 2),
+            "new_defense": round(team.coach_defense, 2),
+            "new_goalie_dev": round(team.coach_goalie_dev, 2),
+        }
+
+    def _cpu_gm_review(self, day: int, phase: str = "regular") -> list[dict[str, Any]]:
+        if phase != "regular" or day < 28:
+            return []
+        # Weekly cadence so AI GMs don't churn constantly.
+        if day % 7 != 0:
+            return []
+        standings = self.simulator.get_standings()
+        rec_map = {r.team.name: r for r in standings}
+        rng = getattr(self.simulator, "_rng", random.Random())
+        moves: list[dict[str, Any]] = []
+
+        for team in self.simulator.teams:
+            if team.name == self.user_team_name:
+                continue
+            rec = rec_map.get(team.name)
+            if rec is None or rec.games_played < 18:
+                continue
+            if team.coach_honeymoon_games_remaining > 0:
+                continue
+
+            div_rows = self.simulator.get_division_standings(team.division)
+            div_rank = next((idx + 1 for idx, row in enumerate(div_rows) if row.team.name == team.name), len(div_rows))
+            point_pct = float(rec.point_pct)
+            goal_diff_pg = rec.goal_diff / max(1, rec.games_played)
+
+            # Build multi-season playoff context so successful coaches get realistic leash.
+            recent_playoff_security = 0.0
+            recent_tags: list[str] = []
+            for season in reversed(self.simulator.season_history[-3:]):
+                if not isinstance(season, dict):
+                    continue
+                made, result = self._playoff_outcome_for_team(season, team.name)
+                if made != "Y":
+                    continue
+                if result == "Champion":
+                    recent_playoff_security += 1.25
+                    recent_tags.append("Champion")
+                elif result == "Cup Final":
+                    recent_playoff_security += 0.95
+                    recent_tags.append("Cup Final")
+                elif result == "Conference Final":
+                    recent_playoff_security += 0.70
+                    recent_tags.append("Conference Final")
+                elif result == "Second Round":
+                    recent_playoff_security += 0.35
+                    recent_tags.append("Second Round")
+                elif result == "First Round":
+                    recent_playoff_security += 0.12
+                    recent_tags.append("First Round")
+            recent_playoff_security = min(1.6, recent_playoff_security)
+
+            hot_seat = 0.0
+            hot_seat += max(0.0, 0.52 - point_pct) * 1.35
+            hot_seat += max(0.0, -goal_diff_pg) * 0.16
+            hot_seat += max(0.0, 3.15 - team.coach_rating) * 0.34
+            hot_seat += 0.14 if div_rank >= max(4, len(div_rows) - 1) else 0.0
+            hot_seat += min(0.25, team.coach_changes_recent * 0.03)
+            # Recent deep playoff success strongly suppresses firing odds.
+            hot_seat = max(0.0, hot_seat - recent_playoff_security * 0.82)
+
+            fire_probability = max(0.0, min(0.55, hot_seat * 0.16))
+
+            # Require meaningful sustained underperformance before serious risk appears.
+            if point_pct < 0.420 and rec.games_played >= 40:
+                fire_probability += 0.10
+            if point_pct < 0.390 and rec.games_played >= 54:
+                fire_probability += 0.12
+            if point_pct < 0.360 and rec.games_played >= 60:
+                fire_probability += 0.16
+
+            # Recent Cup/Conference finalists almost never get fired unless collapse is severe.
+            if "Champion" in recent_tags or "Cup Final" in recent_tags:
+                if not (point_pct < 0.390 and rec.games_played >= 54):
+                    fire_probability *= 0.10
+                else:
+                    fire_probability *= 0.35
+            elif "Conference Final" in recent_tags:
+                if not (point_pct < 0.405 and rec.games_played >= 48):
+                    fire_probability *= 0.22
+                else:
+                    fire_probability *= 0.55
+
+            fire_probability = min(0.62, max(0.0, fire_probability))
+
+            if rng.random() < fire_probability:
+                result = self._replace_team_coach(team_name=team.name, source="cpu_fired")
+                moves.append(
+                    {
+                        "type": "coach_change",
+                        "team": team.name,
+                        "old_coach": result["old_name"],
+                        "new_coach": result["new_name"],
+                        "old_rating": result["old_rating"],
+                        "new_rating": result["new_rating"],
+                        "reason": (
+                            f"CPU GM move on Day {day} "
+                            f"({rec.wins}-{rec.losses}-{rec.ot_losses}, Div {div_rank}, PCT {point_pct:.3f})"
+                        ),
+                    }
+                )
+        return moves
+
     def _team_slug(self, team_name: str) -> str:
         return team_name.lower().replace(" ", "_")
+
+    def _flag_emoji(self, country_code: str) -> str:
+        code = country_code.upper().strip()
+        if len(code) != 2 or not code.isalpha():
+            return ""
+        base = 127397
+        return chr(base + ord(code[0])) + chr(base + ord(code[1]))
 
     def _team_logo_path(self, team_name: str):
         base_assets = Path(__file__).resolve().parents[2] / "assets"
@@ -373,10 +717,12 @@ class SimService:
             home_point_pct = home_rec.point_pct if home_rec is not None else 0.5
             away_point_pct = away_rec.point_pct if away_rec is not None else 0.5
             arena_capacity = max(9500, int(getattr(result.home, "arena_capacity", 16000)))
-            base_attendance = int(arena_capacity * 0.82)
-            quality_bump = int((home_point_pct - 0.5) * 8500 + (away_point_pct - 0.5) * 3200)
+            home_fan_score = float(self._fan_sentiment(result.home.name, self._recent_regular_team_games(result.home.name, limit=6))["score"])
+            away_fan_score = float(self._fan_sentiment(result.away.name, self._recent_regular_team_games(result.away.name, limit=6))["score"])
+            base_attendance = int(arena_capacity * (0.58 + home_fan_score / 230.0))
+            quality_bump = int((home_point_pct - 0.5) * 5200 + (away_point_pct - 0.5) * 1800 + (away_fan_score - 50.0) * 28.0)
             rivalry_bump = 900 if result.home.division == result.away.division else (350 if result.home.conference == result.away.conference else 0)
-            noise = rng.randint(-700, 1150) if rng is not None else 0
+            noise = rng.randint(-500, 700) if rng is not None else 0
             attendance = max(8200, min(arena_capacity, base_attendance + quality_bump + rivalry_bump + noise))
             stars = self._three_stars(result)
             periods = self._period_box_score(result, rng)
@@ -414,6 +760,7 @@ class SimService:
     def _player_to_dict(self, player: Player, team_goal_diff: float = 0.0) -> dict[str, Any]:
         gp = max(1, player.games_played)
         position = player.position
+        country_code = str(player.birth_country_code or "CA").upper()
         shot_rate = 1.15 + player.shooting * 0.68 + (0.18 if position in {"C", "LW", "RW"} else (-0.22 if position == "D" else -0.65))
         shots = max(player.goals, int(round(gp * max(0.4, shot_rate))))
         shot_pct = (player.goals / shots * 100.0) if shots > 0 else 0.0
@@ -442,6 +789,9 @@ class SimService:
         return {
             "team": player.team_name,
             "name": player.name,
+            "country": player.birth_country,
+            "country_code": country_code,
+            "flag": self._flag_emoji(country_code),
             "age": player.age,
             "position": player.position,
             "gp": player.games_played,
@@ -464,8 +814,16 @@ class SimService:
     def _cup_count(self, team_name: str) -> int:
         return sum(1 for s in self.simulator.season_history if str(s.get("champion", "")) == team_name)
 
+    def _cup_seasons(self, team_name: str) -> list[int]:
+        seasons: list[int] = []
+        for season in self.simulator.season_history:
+            if str(season.get("champion", "")) == team_name:
+                seasons.append(int(season.get("season", 0)))
+        return seasons
+
     def _serialize_playoff_games(self, games: list[dict[str, Any]], round_name: str) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
+        rng = getattr(self.simulator, "_rng", None)
         for game in games:
             if not isinstance(game, dict):
                 continue
@@ -495,6 +853,37 @@ class SimService:
             periods = self._period_box_score(fake, getattr(self.simulator, "_rng", None))
             winner = str(game.get("winner", ""))
             game_no = int(game.get("game", 0))
+            home_team = self.simulator.get_team(home)
+            away_team = self.simulator.get_team(away)
+            home_goalie_name = str(game.get("home_goalie", "")).strip()
+            away_goalie_name = str(game.get("away_goalie", "")).strip()
+            if not home_goalie_name and home_team is not None:
+                if home_team.starting_goalie_name:
+                    home_goalie_name = home_team.starting_goalie_name
+                else:
+                    goalies = home_team.dressed_goalies() or home_team.active_goalies()
+                    home_goalie_name = goalies[0].name if goalies else ""
+            if not away_goalie_name and away_team is not None:
+                if away_team.starting_goalie_name:
+                    away_goalie_name = away_team.starting_goalie_name
+                else:
+                    goalies = away_team.dressed_goalies() or away_team.active_goalies()
+                    away_goalie_name = goalies[0].name if goalies else ""
+            arena_capacity = int(game.get("arena_capacity") or (max(9500, int(getattr(home_team, "arena_capacity", 16000))) if home_team is not None else 16000))
+            if game.get("attendance") is not None:
+                attendance = int(game.get("attendance") or 0)
+            else:
+                # Deterministic fallback for older saves that did not persist attendance.
+                token = f"{self.simulator.season_number}:{round_name}:{game_no}:{home}:{away}"
+                stable = sum(ord(ch) for ch in token)
+                base_attendance = int(arena_capacity * 0.93)
+                rivalry_bump = (
+                    1000
+                    if home_team is not None and away_team is not None and home_team.division == away_team.division
+                    else 450
+                )
+                noise = (stable % 1250) - 500
+                attendance = max(8600, min(arena_capacity, base_attendance + rivalry_bump + noise))
             commentary = [
                 (
                     f"{winner} took Game {game_no} of the {round_name} series, winning {away} at {home} {away_goals}-{home_goals}{' in overtime' if overtime else ''}."
@@ -510,20 +899,34 @@ class SimService:
                     "home_goals": home_goals,
                     "away_goals": away_goals,
                     "overtime": overtime,
+                    "home_goalie": home_goalie_name,
+                    "away_goalie": away_goalie_name,
+                    "home_goalie_sv": "",
+                    "away_goalie_sv": "",
+                    "attendance": attendance,
+                    "arena_capacity": arena_capacity,
                     "periods": periods,
                     "commentary": commentary,
                     "three_stars": [],
                     "round": round_name,
                     "game_number": game_no,
                     "winner": winner,
+                    "series_higher_seed": str(game.get("series_higher_seed", "")),
+                    "series_lower_seed": str(game.get("series_lower_seed", "")),
+                    "series_high_wins": int(game.get("series_high_wins", 0)),
+                    "series_low_wins": int(game.get("series_low_wins", 0)),
                 }
             )
         return out
 
     def _goalie_to_dict(self, player: Player) -> dict[str, Any]:
+        country_code = str(player.birth_country_code or "CA").upper()
         return {
             "team": player.team_name,
             "name": player.name,
+            "country": player.birth_country,
+            "country_code": country_code,
+            "flag": self._flag_emoji(country_code),
             "age": player.age,
             "gp": player.goalie_games,
             "w": player.goalie_wins,
@@ -531,6 +934,8 @@ class SimService:
             "otl": player.goalie_ot_losses,
             "gaa": round(player.gaa, 2),
             "sv_pct": round(player.save_pct, 3),
+            "injured": player.is_injured,
+            "injured_games_remaining": player.injured_games_remaining,
         }
 
     def lines(self, team_name: str | None = None) -> dict[str, Any]:
@@ -548,9 +953,13 @@ class SimService:
             team.set_default_lineup()
 
         def _player_row(p: Player) -> dict[str, Any]:
+            country_code = str(p.birth_country_code or "CA").upper()
             return {
                 "name": p.name,
                 "pos": p.position,
+                "country": p.birth_country,
+                "country_code": country_code,
+                "flag": self._flag_emoji(country_code),
                 "age": p.age,
                 "shooting": round(p.shooting, 2),
                 "playmaking": round(p.playmaking, 2),
@@ -591,6 +1000,18 @@ class SimService:
             )
 
         candidates = [_player_row(p) for p in sorted(team.active_players(), key=lambda p: (p.position, p.name))]
+        injuries = [
+            {
+                "name": p.name,
+                "pos": p.position,
+                "country": p.birth_country,
+                "country_code": str(p.birth_country_code or "CA").upper(),
+                "flag": self._flag_emoji(str(p.birth_country_code or "CA").upper()),
+                "games_remaining": p.injured_games_remaining,
+            }
+            for p in sorted(team.roster, key=lambda x: (x.injured_games_remaining * -1, x.name))
+            if p.is_injured
+        ]
 
         return {
             "team": team.name,
@@ -604,6 +1025,7 @@ class SimService:
             "assignments": {slot: str(team.line_assignments.get(slot, "")) for slot in ALL_LINE_SLOTS},
             "units": units,
             "candidates": candidates,
+            "injuries": injuries,
         }
 
     def set_lines(self, team_name: str | None, assignments: dict[str, str]) -> dict[str, Any]:
@@ -678,6 +1100,8 @@ class SimService:
             "user_coach_name": user_team.coach_name if user_team is not None else "",
             "user_coach_rating": round(user_team.coach_rating, 2) if user_team is not None else 0.0,
             "user_coach_style": user_team.coach_style if user_team is not None else "",
+            "draft_focus": self.simulator.get_draft_focus(self.user_team_name) if self.user_team_name else "auto",
+            "draft_focus_options": list(self.simulator.DRAFT_FOCUS_OPTIONS),
             "season": self.simulator.season_number,
             "day": display_day,
             "total_days": display_total,
@@ -710,7 +1134,7 @@ class SimService:
         if scope == "team":
             if not team:
                 raise HTTPException(status_code=400, detail="team is required for team scope")
-            rows = self.simulator.get_player_stats(team_name=team)
+            rows = [p for p in self.simulator.get_player_stats(team_name=team) if p.position != "G"]
             return [
                 self._player_to_dict(
                     p,
@@ -718,7 +1142,7 @@ class SimService:
                 )
                 for p in rows
             ]
-        rows = self.simulator.get_player_stats()
+        rows = [p for p in self.simulator.get_player_stats() if p.position != "G"]
         return [
             self._player_to_dict(
                 p,
@@ -734,12 +1158,77 @@ class SimService:
             return [self._goalie_to_dict(p) for p in self.simulator.get_goalie_stats(team_name=team)]
         return [self._goalie_to_dict(p) for p in self.simulator.get_goalie_stats()]
 
+    def minor_league(self, team_name: str | None = None) -> list[dict[str, Any]]:
+        chosen = (team_name or self.user_team_name).strip()
+        if not chosen:
+            raise HTTPException(status_code=400, detail="No team selected")
+        team = self.simulator.get_team(chosen)
+        if team is None:
+            raise HTTPException(status_code=404, detail="Team not found")
+
+        rows: list[dict[str, Any]] = []
+        for p in sorted(
+            team.minor_roster,
+            key=lambda x: (
+                0 if x.position in GOALIE_POSITIONS else 1,
+                -(x.goaltending if x.position in GOALIE_POSITIONS else (x.shooting + x.playmaking + x.defense)),
+                x.name,
+            ),
+        ):
+            country_code = str(p.birth_country_code or "CA").upper()
+            rows.append(
+                {
+                    "team": team.name,
+                    "name": p.name,
+                    "position": p.position,
+                    "age": p.age,
+                    "country": p.birth_country,
+                    "country_code": country_code,
+                    "flag": self._flag_emoji(country_code),
+                    "tier": p.prospect_tier,
+                    "seasons_to_nhl": p.seasons_to_nhl,
+                    "overall": round(
+                        p.goaltending
+                        if p.position in GOALIE_POSITIONS
+                        else (p.shooting * 0.36 + p.playmaking * 0.30 + p.defense * 0.24 + p.physical * 0.10),
+                        2,
+                    ),
+                    "injured": p.is_injured,
+                    "injured_games_remaining": p.injured_games_remaining,
+                }
+            )
+        return rows
+
+    def set_draft_focus(self, team_name: str | None, focus: str) -> dict[str, Any]:
+        chosen = (team_name or self.user_team_name).strip()
+        if not chosen:
+            raise HTTPException(status_code=400, detail="No team selected")
+        team = self.simulator.get_team(chosen)
+        if team is None:
+            raise HTTPException(status_code=404, detail="Team not found")
+        if chosen != self.user_team_name:
+            raise HTTPException(status_code=403, detail="Can only set draft focus for your team")
+        try:
+            selected = self.simulator.set_draft_focus(chosen, focus)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {
+            "ok": True,
+            "team": chosen,
+            "focus": selected,
+            "options": list(self.simulator.DRAFT_FOCUS_OPTIONS),
+        }
+
     def _current_career_row(self, player: Player) -> dict[str, Any]:
+        country_code = str(player.birth_country_code or "CA").upper()
         return {
             "season": self.simulator.season_number,
             "team": player.team_name,
             "age": player.age,
             "position": player.position,
+            "country": player.birth_country,
+            "country_code": country_code,
+            "flag": self._flag_emoji(country_code),
             "gp": player.games_played,
             "g": player.goals,
             "a": player.assists,
@@ -761,7 +1250,7 @@ class SimService:
             team = next((t for t in self.simulator.teams if t.name.lower() == team_name.lower()), None)
         if team is None:
             raise HTTPException(status_code=404, detail="Team not found")
-        player = next((p for p in team.roster if p.name == player_name), None)
+        player = next((p for p in [*team.roster, *team.minor_roster] if p.name == player_name), None)
         if player is None:
             raise HTTPException(status_code=404, detail="Player not found")
 
@@ -769,18 +1258,24 @@ class SimService:
         draft_label = "Undrafted"
         if player.draft_overall is not None and player.draft_round is not None and player.draft_season is not None:
             draft_label = f"S{player.draft_season} R{player.draft_round} #{player.draft_overall} ({player.draft_team or team.name})"
+        country_code = str(player.birth_country_code or "CA").upper()
         return {
             "player": {
                 "team": player.team_name,
                 "name": player.name,
                 "age": player.age,
                 "position": player.position,
+                "country": player.birth_country,
+                "country_code": country_code,
+                "flag": self._flag_emoji(country_code),
                 "draft_label": draft_label,
             },
             "career": [self._current_career_row(player), *history_rows],
         }
 
     def _fan_sentiment(self, team_name: str, recent_games: list[dict[str, Any]]) -> dict[str, Any]:
+        if not recent_games:
+            recent_games = self._recent_regular_team_games(team_name=team_name, limit=6)
         team = self.simulator.get_team(team_name)
         standings = {r.team.name: r for r in self.simulator.get_standings()}
         rec = standings.get(team_name)
@@ -825,6 +1320,74 @@ class SimService:
             "mood": mood,
             "trend": trend,
             "summary": f"{mood} fan mood ({trend.lower()} trend) based on recent results and season form.",
+        }
+
+    def _recent_regular_team_games(self, team_name: str, limit: int = 6) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for day_row in reversed(self.daily_results):
+            if int(day_row.get("season", 0)) != self.simulator.season_number:
+                continue
+            if str(day_row.get("phase", "regular")) != "regular":
+                continue
+            games = day_row.get("games", [])
+            if not isinstance(games, list):
+                continue
+            for g in games:
+                if not isinstance(g, dict):
+                    continue
+                if str(g.get("home", "")) == team_name or str(g.get("away", "")) == team_name:
+                    rows.append(dict(g))
+            if len(rows) >= limit:
+                break
+        return rows[:limit]
+
+    def _locker_room_sentiment(self, team_name: str, recent_games: list[dict[str, Any]]) -> dict[str, Any]:
+        team = self.simulator.get_team(team_name)
+        standings = {r.team.name: r for r in self.simulator.get_standings()}
+        rec = standings.get(team_name)
+        score = 55.0
+        if rec is not None:
+            score += (rec.point_pct - 0.5) * 30.0
+        if team is not None:
+            injuries = sum(1 for p in team.roster if p.is_injured)
+            score -= injuries * 2.2
+            score -= max(0.0, team.coach_changes_recent) * 1.6
+            score += max(0.0, team.coach_honeymoon_games_remaining) * 0.12
+
+        trend_points: list[int] = []
+        for g in recent_games[:6]:
+            home = str(g.get("home", ""))
+            away = str(g.get("away", ""))
+            hg = int(g.get("home_goals", 0))
+            ag = int(g.get("away_goals", 0))
+            if home == team_name:
+                won = hg > ag
+                diff = hg - ag
+            else:
+                won = ag > hg
+                diff = ag - hg
+            trend_points.append((4 if won else -3) + max(-2, min(2, diff)))
+        score += sum(trend_points) * 0.7
+        score = max(0.0, min(100.0, score))
+
+        if score >= 74:
+            mood = "Locked In"
+        elif score >= 62:
+            mood = "Confident"
+        elif score >= 48:
+            mood = "Neutral"
+        elif score >= 35:
+            mood = "Tense"
+        else:
+            mood = "Shaken"
+        recent_three = trend_points[:3]
+        trend_total = sum(recent_three)
+        trend = "Rising" if trend_total >= 3 else ("Falling" if trend_total <= -3 else "Flat")
+        return {
+            "score": round(score, 1),
+            "mood": mood,
+            "trend": trend,
+            "summary": f"{mood} room ({trend.lower()} trend) shaped by results, injuries, and staff stability.",
         }
 
     def playoff_data(self) -> dict[str, Any]:
@@ -1037,6 +1600,9 @@ class SimService:
                                 "season": season_no,
                                 "name": str(p.get("name", "")),
                                 "position": str(p.get("position", "")),
+                                "country": str(p.get("country", "")),
+                                "country_code": str(p.get("country_code", "")),
+                                "flag": self._flag_emoji(str(p.get("country_code", ""))),
                                 "round": int(p.get("round") or 0),
                                 "overall": int(p.get("overall") or 0),
                             }
@@ -1070,6 +1636,7 @@ class SimService:
                 use_user_lines=self.override_coach_for_lines,
                 use_user_strategy=self.override_coach_for_strategy,
             )
+            self._injury_news_from_results(day_num=day_num, results=results)
             serialized = self._serialize_games(results)
             self.daily_results = [
                 d
@@ -1087,12 +1654,14 @@ class SimService:
                     "games": serialized,
                 }
             )
+            gm_moves = self._cpu_gm_review(day=day_num, phase="regular")
             return {
                 "phase": "regular",
                 "season": self.simulator.season_number,
                 "day": day_num,
                 "total_days": self.simulator.total_days,
                 "games": serialized,
+                "gm_moves": gm_moves,
                 "season_complete": self.simulator.is_complete(),
             }
 
@@ -1134,6 +1703,10 @@ class SimService:
         offseason = self.simulator.finalize_offseason_after_playoffs()
         if not offseason.get("advanced"):
             raise HTTPException(status_code=500, detail="Could not finalize offseason")
+        completed = int(offseason.get("completed_season", self.simulator.season_number))
+        drafted_details = offseason.get("drafted_details", {})
+        if isinstance(drafted_details, dict):
+            self._draft_news_from_offseason(completed_season=completed, drafted_details=drafted_details)
         return {
             "phase": "offseason",
             "completed_season": offseason.get("completed_season"),
@@ -1316,6 +1889,7 @@ class SimService:
             "team": team.name,
             "logo_url": f"/api/team-logo/{self._team_slug(team.name)}",
             "cup_count": self._cup_count(team.name),
+            "cup_seasons": self._cup_seasons(team.name),
             "season": self.simulator.season_number,
             "day": self.simulator.current_day,
             "coach": {
@@ -1325,6 +1899,7 @@ class SimService:
                 "offense": round(team.coach_offense, 2),
                 "defense": round(team.coach_defense, 2),
                 "goalie_dev": round(team.coach_goalie_dev, 2),
+                "record": "0-0-0",
                 "tenure_seasons": team.coach_tenure_seasons,
                 "changes_recent": round(team.coach_changes_recent, 2),
                 "honeymoon_games_remaining": team.coach_honeymoon_games_remaining,
@@ -1382,12 +1957,22 @@ class SimService:
             "division": team.division,
             "division_rank": div_rank,
             "points": rec.points if rec is not None else 0,
+            "pp_pct": round(rec.pp_pct, 3) if rec is not None else 0.0,
+            "pk_pct": round(rec.pk_pct, 3) if rec is not None else 0.0,
         }
+        payload["coach"]["record"] = payload["team_summary"]["record"]
         payload["special_teams"] = {
             "pp_pct": round(rec.pp_pct, 3) if rec is not None else 0.0,
             "pk_pct": round(rec.pk_pct, 3) if rec is not None else 0.0,
         }
         payload["fan_sentiment"] = self._fan_sentiment(team.name, recent_team_games)
+        payload["locker_room"] = self._locker_room_sentiment(team.name, recent_team_games)
+        season_news = [dict(row) for row in self.news_feed if int(row.get("season", 0)) == int(self.simulator.season_number)]
+        if season_news:
+            latest_news_day = max(int(row.get("day", 0)) for row in season_news)
+            payload["news"] = [row for row in season_news if int(row.get("day", 0)) == latest_news_day][:60]
+        else:
+            payload["news"] = []
         return payload
 
     def reset(self) -> dict[str, Any]:
@@ -1397,7 +1982,7 @@ class SimService:
         return self.meta()
 
     def coach_candidates(self) -> list[dict[str, Any]]:
-        self.coach_pool.sort(key=lambda c: (int(c.get("cups", 0)), float(c.get("rating", 0.0))), reverse=True)
+        self._ensure_coach_pool_depth()
         return [dict(row) for row in self.coach_pool[:20]]
 
     def fire_coach(self, team_name: str | None = None, hire_name: str | None = None) -> dict[str, Any]:
@@ -1406,66 +1991,20 @@ class SimService:
         chosen = (team_name or self.user_team_name).strip()
         if not chosen:
             raise HTTPException(status_code=400, detail="No team selected")
-        team = self.simulator.get_team(chosen)
-        if team is None:
-            raise HTTPException(status_code=404, detail="Team not found")
-
-        standings_map = {rec.team.name: rec for rec in self.simulator.get_standings()}
-        rec = standings_map.get(chosen)
-        old_name = team.coach_name
-        old_rating = float(team.coach_rating)
-        fired_row = {
-            "name": old_name,
-            "rating": round(old_rating, 2),
-            "style": team.coach_style,
-            "offense": round(team.coach_offense, 2),
-            "defense": round(team.coach_defense, 2),
-            "goalie_dev": round(team.coach_goalie_dev, 2),
-            "w": int(rec.wins if rec is not None else 0),
-            "l": int(rec.losses if rec is not None else 0),
-            "otl": int(rec.ot_losses if rec is not None else 0),
-            "cups": int(sum(1 for s in self.simulator.season_history for c in s.get("coaches", []) if isinstance(c, dict) and str(c.get("coach", "")) == old_name and bool(c.get("champion", False)))),
-            "source": "fired",
-        }
-        if all(str(c.get("name", "")) != old_name for c in self.coach_pool):
-            self.coach_pool.append(fired_row)
-
-        hire: dict[str, Any] | None = None
-        if hire_name:
-            hire = next((c for c in self.coach_pool if str(c.get("name", "")) == hire_name), None)
-            if hire is None:
-                raise HTTPException(status_code=404, detail="Selected coach not found in candidate pool")
-        if hire is None:
-            self.coach_pool.sort(key=lambda c: (int(c.get("cups", 0)), float(c.get("rating", 0.0))), reverse=True)
-            hire = self.coach_pool[0] if self.coach_pool else None
-        if hire is None:
-            raise HTTPException(status_code=400, detail="No available coaches")
-
-        self.coach_pool = [c for c in self.coach_pool if str(c.get("name", "")) != str(hire.get("name", ""))]
-        team.coach_name = str(hire.get("name", "Coach"))
-        team.coach_rating = float(hire.get("rating", 3.0))
-        team.coach_style = str(hire.get("style", "balanced"))
-        team.coach_offense = float(hire.get("offense", team.coach_rating))
-        team.coach_defense = float(hire.get("defense", team.coach_rating))
-        team.coach_goalie_dev = float(hire.get("goalie_dev", team.coach_rating))
-        team.coach_tenure_seasons = 0
-        team.coach_changes_recent = min(5.0, max(0.0, team.coach_changes_recent) + 1.0)
-        team.coach_honeymoon_games_remaining = 24
-        team.set_default_lineup()
-        self.simulator._save_state()
+        result = self._replace_team_coach(team_name=chosen, hire_name=hire_name, source="fired")
         return {
             "ok": True,
             "result": {
                 "fired": True,
-                "team": team.name,
-                "old_name": old_name,
-                "old_rating": round(old_rating, 2),
-                "new_name": team.coach_name,
-                "new_rating": round(team.coach_rating, 2),
-                "new_style": team.coach_style,
-                "new_offense": round(team.coach_offense, 2),
-                "new_defense": round(team.coach_defense, 2),
-                "new_goalie_dev": round(team.coach_goalie_dev, 2),
+                "team": result["team"],
+                "old_name": result["old_name"],
+                "old_rating": result["old_rating"],
+                "new_name": result["new_name"],
+                "new_rating": result["new_rating"],
+                "new_style": result["new_style"],
+                "new_offense": result["new_offense"],
+                "new_defense": result["new_defense"],
+                "new_goalie_dev": result["new_goalie_dev"],
             },
         }
 
@@ -1620,6 +2159,12 @@ def goalies(scope: str = "league", team: str | None = None) -> list[dict[str, An
         return service.goalies(scope=scope.lower(), team=team)
 
 
+@app.get("/api/minor-league")
+def minor_league(team: str | None = None) -> list[dict[str, Any]]:
+    with service._lock:
+        return service.minor_league(team_name=team)
+
+
 @app.get("/api/lines")
 def lines(team: str | None = None) -> dict[str, Any]:
     with service._lock:
@@ -1660,3 +2205,15 @@ def day_board(day: int = 0) -> dict[str, Any]:
 def home_panel() -> dict[str, Any]:
     with service._lock:
         return service.home_panel()
+
+
+@app.post("/api/draft-need")
+def set_draft_need(payload: DraftNeedSelection) -> dict[str, Any]:
+    with service._lock:
+        return service.set_draft_focus(team_name=payload.team_name, focus=payload.focus)
+
+
+@app.get("/api/news")
+def news(limit: int = 80) -> list[dict[str, Any]]:
+    with service._lock:
+        return service.news(limit=limit)

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
-type MainNavKey = "home" | "scores" | "team_stats" | "league_stats" | "standings" | "lines" | "franchise";
+type MainNavKey = "home" | "scores" | "team_stats" | "league_stats" | "standings" | "lines" | "minors" | "franchise";
 type StandingsTab = "standings" | "wildcard" | "playoffs";
 
 type Meta = {
@@ -19,6 +19,8 @@ type Meta = {
   user_coach_name: string;
   user_coach_rating: number;
   user_coach_style: string;
+  draft_focus?: string;
+  draft_focus_options?: string[];
   season: number;
   day: number;
   total_days: number;
@@ -66,6 +68,9 @@ type StandingsResponse = {
 type PlayerRow = {
   team: string;
   name: string;
+  country?: string;
+  country_code?: string;
+  flag?: string;
   age: number;
   position: string;
   gp: number;
@@ -81,11 +86,16 @@ type PlayerRow = {
   sha: number;
   shots: number;
   shot_pct: number;
+  injured?: boolean;
+  injured_games_remaining?: number;
 };
 
 type GoalieRow = {
   team: string;
   name: string;
+  country?: string;
+  country_code?: string;
+  flag?: string;
   age: number;
   gp: number;
   w: number;
@@ -93,6 +103,8 @@ type GoalieRow = {
   otl: number;
   gaa: number;
   sv_pct: number;
+  injured?: boolean;
+  injured_games_remaining?: number;
 };
 
 type CareerRow = {
@@ -121,6 +133,9 @@ type PlayerCareerPayload = {
     name: string;
     age: number;
     position: string;
+    country?: string;
+    country_code?: string;
+    flag?: string;
     draft_label?: string;
   };
   career: CareerRow[];
@@ -171,7 +186,7 @@ type FranchisePayload = {
     goalie_wins: Array<{ name: string; value: number; status: string }>;
   };
   retired?: Array<{ season: number; entry: string }>;
-  draft_picks?: Array<{ season: number; name: string; position: string; round: number; overall: number }>;
+  draft_picks?: Array<{ season: number; name: string; position: string; country?: string; country_code?: string; flag?: string; round: number; overall: number }>;
 };
 
 type AdvanceResponse = {
@@ -212,6 +227,12 @@ type DayBoard = {
     periods?: Array<{ label: string; home: number; away: number }>;
     commentary?: string[];
     three_stars?: Array<{ label: string; summary: string }>;
+    round?: string;
+    game_number?: number;
+    series_higher_seed?: string;
+    series_lower_seed?: string;
+    series_high_wins?: number;
+    series_low_wins?: number;
   }>;
 };
 
@@ -219,6 +240,7 @@ type HomePanel = {
   team: string;
   logo_url: string;
   cup_count?: number;
+  cup_seasons?: number[];
   season: number;
   day: number;
   team_summary?: {
@@ -226,6 +248,8 @@ type HomePanel = {
     division: string;
     division_rank: number;
     points: number;
+    pp_pct?: number;
+    pk_pct?: number;
   };
   coach: {
     name: string;
@@ -234,6 +258,7 @@ type HomePanel = {
     offense: number;
     defense: number;
     goalie_dev: number;
+    record?: string;
     tenure_seasons: number;
     changes_recent: number;
     honeymoon_games_remaining: number;
@@ -250,6 +275,12 @@ type HomePanel = {
     pk_pct: number;
   };
   fan_sentiment?: {
+    score: number;
+    mood: string;
+    trend: string;
+    summary: string;
+  };
+  locker_room?: {
     score: number;
     mood: string;
     trend: string;
@@ -321,6 +352,14 @@ type HomePanel = {
     away: string;
     game_number?: number;
   } | null;
+  news?: Array<{
+    kind: string;
+    headline: string;
+    details: string;
+    team?: string;
+    season: number;
+    day: number;
+  }>;
   playoffs?: {
     active: boolean;
     day?: number;
@@ -336,6 +375,10 @@ type HomePanel = {
       commentary?: string[];
       round?: string;
       game_number?: number;
+      series_higher_seed?: string;
+      series_lower_seed?: string;
+      series_high_wins?: number;
+      series_low_wins?: number;
       winner?: string;
       home_record?: string;
       away_record?: string;
@@ -371,14 +414,30 @@ type LinesPayload = {
   assignments: Record<string, string>;
   units: Array<{
     unit: string;
-    LW: { name: string; pos: string; out_of_position?: boolean } | null;
-    C: { name: string; pos: string; out_of_position?: boolean } | null;
-    RW: { name: string; pos: string; out_of_position?: boolean } | null;
-    LD: { name: string; pos: string; out_of_position?: boolean } | null;
-    RD: { name: string; pos: string; out_of_position?: boolean } | null;
-    G: { name: string; pos: string; out_of_position?: boolean } | null;
+    LW: { name: string; pos: string; flag?: string; out_of_position?: boolean } | null;
+    C: { name: string; pos: string; flag?: string; out_of_position?: boolean } | null;
+    RW: { name: string; pos: string; flag?: string; out_of_position?: boolean } | null;
+    LD: { name: string; pos: string; flag?: string; out_of_position?: boolean } | null;
+    RD: { name: string; pos: string; flag?: string; out_of_position?: boolean } | null;
+    G: { name: string; pos: string; flag?: string; out_of_position?: boolean } | null;
   }>;
-  candidates: Array<{ name: string; pos: string }>;
+  candidates: Array<{ name: string; pos: string; flag?: string }>;
+  injuries?: Array<{ name: string; pos: string; flag?: string; games_remaining: number }>;
+};
+
+type MinorPlayerRow = {
+  team: string;
+  name: string;
+  position: string;
+  age: number;
+  country?: string;
+  country_code?: string;
+  flag?: string;
+  tier: string;
+  seasons_to_nhl: number;
+  overall: number;
+  injured?: boolean;
+  injured_games_remaining?: number;
 };
 
 const API_BASE = "http://127.0.0.1:8000/api";
@@ -416,14 +475,16 @@ export default function App() {
   const [showCoachModal, setShowCoachModal] = useState(false);
   const [linesData, setLinesData] = useState<LinesPayload | null>(null);
   const [lineAssignments, setLineAssignments] = useState<Record<string, string>>({});
-  const [gameModeLocal, setGameModeLocal] = useState<"gm" | "coach" | "both">("both");
+  const [minorPlayers, setMinorPlayers] = useState<MinorPlayerRow[]>([]);
+  const [gameModeLocal, setGameModeLocal] = useState<"gm" | "coach" | "both">("gm");
+  const [showCoachDetails, setShowCoachDetails] = useState(false);
   const [loading, setLoading] = useState(false);
   const [simBusy, setSimBusy] = useState(false);
   const [error, setError] = useState("");
 
   const summary = useMemo(() => {
     if (!meta) return "Loading...";
-    if (mainNav === "scores" && scoreBoard) {
+    if (scoreBoard) {
       const label = scoreBoard.phase === "playoffs"
         ? `Playoffs${scoreBoard.round ? ` - ${scoreBoard.round}` : ""}`
         : "Regular Season";
@@ -431,6 +492,21 @@ export default function App() {
     }
     return `Season ${meta.season} Day ${meta.day}/${meta.total_days}${meta.in_playoffs ? " | Playoffs" : ""}`;
   }, [meta, mainNav, scoreBoard]);
+
+  function trendArrow(trend?: string): string {
+    if (trend === "Rising") return "▲";
+    if (trend === "Falling") return "▼";
+    return "■";
+  }
+
+  function moodFace(mood?: string): string {
+    const m = (mood ?? "").toLowerCase();
+    if (m.includes("buzz") || m.includes("locked")) return "😄";
+    if (m.includes("optim") || m.includes("confident")) return "🙂";
+    if (m.includes("steady") || m.includes("neutral")) return "😐";
+    if (m.includes("restless") || m.includes("tense")) return "😟";
+    return "😠";
+  }
 
   async function loadMeta() {
     const m = await fetchJson<Meta>("/meta");
@@ -493,6 +569,12 @@ export default function App() {
     setLineAssignments(payload.assignments ?? {});
   }
 
+  async function loadMinorLeague(teamName?: string) {
+    const chosen = teamName ?? meta?.user_team;
+    if (!chosen) return;
+    setMinorPlayers(await fetchJson<MinorPlayerRow[]>(`/minor-league?team=${encodeURIComponent(chosen)}`));
+  }
+
   async function loadDayBoards(sDay = scoreDay) {
     const scores = await fetchJson<DayBoard>(`/day-board?day=${sDay}`);
     setScoreBoard(scores);
@@ -513,6 +595,8 @@ export default function App() {
         loadFranchise(),
         loadHome(),
         loadDayBoards(scoreTarget),
+        (mainNav === "lines" ? loadLines() : Promise.resolve()),
+        (mainNav === "minors" ? loadMinorLeague(m.user_team) : Promise.resolve()),
       ]);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -558,6 +642,15 @@ export default function App() {
         override_coach_for_lines: overrideCoachForLines,
         override_coach_for_strategy: overrideCoachForStrategy,
       }),
+    });
+    await refreshAll();
+  }
+
+  async function setDraftFocus(focus: string) {
+    await fetchJson("/draft-need", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ focus }),
     });
     await refreshAll();
   }
@@ -660,6 +753,17 @@ export default function App() {
               </option>
             ))}
           </select>
+          <select
+            value={meta?.draft_focus ?? "auto"}
+            onChange={(e) => void setDraftFocus(e.target.value)}
+            disabled={!meta}
+          >
+            {(meta?.draft_focus_options ?? ["auto", "F", "C", "LW", "RW", "D", "G"]).map((f) => (
+              <option key={`df-${f}`} value={f}>
+                Draft {String(f).toUpperCase()}
+              </option>
+            ))}
+          </select>
           <label className="inline-check">
             <input
               type="checkbox"
@@ -721,6 +825,7 @@ export default function App() {
           ["league_stats", "League Stats"],
           ["standings", "Standings"],
           ["lines", "Lines"],
+          ["minors", "Minor League"],
           ["franchise", "Franchise"],
         ].map(([key, label]) => (
           <button
@@ -731,6 +836,7 @@ export default function App() {
               if (key === "team_stats") void loadLeaders("team");
               if (key === "league_stats") void loadLeaders("league");
               if (key === "lines") void loadLines();
+              if (key === "minors") void loadMinorLeague();
               setMainNav(key as MainNavKey);
             }}
           >
@@ -908,17 +1014,17 @@ export default function App() {
             <h2>{meta?.user_team ?? "My Team"} Stats</h2>
           </div>
           <div className="split">
-            <div><h3>Skaters</h3><table><thead><tr><th>Player</th><th>Pos</th><th>GP</th><th>G</th><th>A</th><th>P</th><th>+/-</th><th>PIM</th><th>TOI/G</th><th>PPG</th><th>PPA</th><th>SHG</th><th>SHA</th><th>S</th><th>S%</th></tr></thead><tbody>
+            <div><h3>Skaters</h3><table><thead><tr><th>Player</th><th>Pos</th><th>GP</th><th>G</th><th>A</th><th>P</th><th>+/-</th><th>PIM</th><th>TOI/G</th><th>PPG</th><th>PPA</th><th>SHG</th><th>SHA</th><th>S</th><th>S%</th><th>Out</th></tr></thead><tbody>
               {players.map((p) => (
                 <tr key={`${p.team}-${p.name}`} className="row-clickable" onClick={() => void openPlayerCareer(p.team, p.name)}>
-                  <td>{p.name}</td><td>{p.position}</td><td>{p.gp}</td><td>{p.g}</td><td>{p.a}</td><td>{p.p}</td><td>{p.plus_minus}</td><td>{p.pim}</td><td>{p.toi_g.toFixed(1)}</td><td>{p.ppg}</td><td>{p.ppa}</td><td>{p.shg}</td><td>{p.sha}</td><td>{p.shots}</td><td>{p.shot_pct.toFixed(1)}</td>
+                  <td>{p.injured ? <span className="neg">IR </span> : null}{p.flag ? `${p.flag} ` : ""}{p.name}</td><td>{p.position}</td><td>{p.gp}</td><td>{p.g}</td><td>{p.a}</td><td>{p.p}</td><td>{p.plus_minus}</td><td>{p.pim}</td><td>{p.toi_g.toFixed(1)}</td><td>{p.ppg}</td><td>{p.ppa}</td><td>{p.shg}</td><td>{p.sha}</td><td>{p.shots}</td><td>{p.shot_pct.toFixed(1)}</td><td>{p.injured ? <span className="neg">{p.injured_games_remaining ?? 0}</span> : "-"}</td>
                 </tr>
               ))}
             </tbody></table></div>
-            <div><h3>Goalies</h3><table><thead><tr><th>Goalie</th><th>GP</th><th>W</th><th>L</th><th>OTL</th><th>GAA</th><th>SV%</th></tr></thead><tbody>
+            <div><h3>Goalies</h3><table><thead><tr><th>Goalie</th><th>GP</th><th>W</th><th>L</th><th>OTL</th><th>GAA</th><th>SV%</th><th>Out</th></tr></thead><tbody>
               {goalies.map((g) => (
                 <tr key={`${g.team}-${g.name}`} className="row-clickable" onClick={() => void openPlayerCareer(g.team, g.name)}>
-                  <td>{g.name}</td><td>{g.gp}</td><td>{g.w}</td><td>{g.l}</td><td>{g.otl}</td><td>{g.gaa.toFixed(2)}</td><td>{g.sv_pct.toFixed(3)}</td>
+                  <td>{g.injured ? <span className="neg">IR </span> : null}{g.flag ? `${g.flag} ` : ""}{g.name}</td><td>{g.gp}</td><td>{g.w}</td><td>{g.l}</td><td>{g.otl}</td><td>{g.gaa.toFixed(2)}</td><td>{g.sv_pct.toFixed(3)}</td><td>{g.injured ? <span className="neg">{g.injured_games_remaining ?? 0}</span> : "-"}</td>
                 </tr>
               ))}
             </tbody></table></div>
@@ -947,7 +1053,7 @@ export default function App() {
             </div>
           </div>
           <p className="muted">
-            Season {scoreBoard?.season ?? "-"} | {scoreBoard?.phase === "playoffs" ? `Playoffs${scoreBoard?.round ? ` - ${scoreBoard.round}` : ""}` : "Regular Season"} | {scoreBoard?.status === "played" ? "Most Recent Finals" : "Scheduled Games"}
+            Season {scoreBoard?.season ?? "-"} | {scoreBoard?.phase === "playoffs" ? `Playoffs${scoreBoard?.round ? ` - ${scoreBoard.round}` : ""}` : "Regular Season"} | {scoreBoard?.status === "played" ? "Final Scores" : "Scheduled Games"}
           </p>
           <div className="score-list">
             {(scoreBoard?.games ?? []).map((g, idx) => (
@@ -998,16 +1104,16 @@ export default function App() {
                   if (col === "G") return idx < 2 ? `G${idx + 1}` : "";
                   return `${col}${idx + 1}`;
                 };
-                const renderCell = (col: "LW" | "C" | "RW" | "LD" | "RD" | "G", item: { name: string; pos: string; out_of_position?: boolean } | null) => {
+                const renderCell = (col: "LW" | "C" | "RW" | "LD" | "RD" | "G", item: { name: string; pos: string; flag?: string; out_of_position?: boolean } | null) => {
                   const id = slotId(col);
                   if (!id) return "-";
                   if (!(linesData?.override_coach_for_lines ?? false)) {
                     if (!item) return "-";
-                    return (
-                      <span className={item.out_of_position ? "neg" : ""}>
-                        {item.name} ({item.pos})
-                      </span>
-                    );
+                      return (
+                        <span className={item.out_of_position ? "neg" : ""}>
+                          {item.flag ? `${item.flag} ` : ""}{item.name} ({item.pos})
+                        </span>
+                      );
                   }
                   return (
                     <select
@@ -1017,7 +1123,7 @@ export default function App() {
                       <option value="">-</option>
                       {(linesData?.candidates ?? []).map((c) => (
                         <option key={`${id}-${c.name}`} value={c.name}>
-                          {c.name} ({c.pos})
+                          {c.flag ? `${c.flag} ` : ""}{c.name} ({c.pos})
                         </option>
                       ))}
                     </select>
@@ -1035,6 +1141,52 @@ export default function App() {
                   </tr>
                 );
               })}
+            </tbody>
+          </table>
+          <h3>Injury Report</h3>
+          {(linesData?.injuries ?? []).length > 0 ? (
+            <table>
+              <thead>
+                <tr><th>Player</th><th>Pos</th><th>Out (Games)</th></tr>
+              </thead>
+              <tbody>
+                {(linesData?.injuries ?? []).map((inj) => (
+                  <tr key={`inj-${inj.name}`}>
+                    <td>{inj.flag ? `${inj.flag} ` : ""}{inj.name}</td>
+                    <td>{inj.pos}</td>
+                    <td>{inj.games_remaining}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="muted">No current injuries.</p>
+          )}
+        </section>
+      ) : null}
+
+      {mainNav === "minors" ? (
+        <section className="card">
+          <h2>{meta?.user_team ?? "Team"} Minor League</h2>
+          <p className="muted">Farm-system players available for call-ups.</p>
+          <table>
+            <thead>
+              <tr>
+                <th>Player</th><th>Pos</th><th>Age</th><th>Tier</th><th>NHL ETA</th><th>Overall</th><th>Out</th>
+              </tr>
+            </thead>
+            <tbody>
+              {minorPlayers.map((p) => (
+                <tr key={`minor-${p.team}-${p.name}`} className="row-clickable" onClick={() => void openPlayerCareer(p.team, p.name)}>
+                  <td>{p.injured ? <span className="neg">IR </span> : null}{p.flag ? `${p.flag} ` : ""}{p.name}</td>
+                  <td>{p.position}</td>
+                  <td>{p.age}</td>
+                  <td>{p.tier}</td>
+                  <td>{p.seasons_to_nhl}</td>
+                  <td>{p.overall.toFixed(2)}</td>
+                  <td>{p.injured ? <span className="neg">{p.injured_games_remaining ?? 0}</span> : "-"}</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </section>
@@ -1060,7 +1212,7 @@ export default function App() {
                     <tbody>
                       {(franchise.draft_picks ?? []).slice(0, 30).map((d, idx) => (
                         <tr key={`d-${idx}-${d.season}-${d.name}`}>
-                          <td>{d.season}</td><td>{d.name}</td><td>{d.position}</td><td>R{d.round} #{d.overall}</td>
+                          <td>{d.season}</td><td>{d.flag ? `${d.flag} ` : ""}{d.name}</td><td>{d.position}</td><td>R{d.round} #{d.overall}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -1089,56 +1241,45 @@ export default function App() {
         <section className="card">
           <h2>
             {homePanel?.team ?? meta?.user_team ?? "Team"} Home
-            <span className="cup-badges">{Array.from({ length: homePanel?.cup_count ?? 0 }).map((_, i) => <span key={`hc-${i}`}>🏆</span>)}</span>
+            <span className="cup-badges">
+              {(homePanel?.cup_seasons ?? []).map((s) => <span key={`hc-${s}`} title={`Champion Season ${s}`}>🏆S{s}</span>)}
+            </span>
           </h2>
           <p className="muted">
             Record {homePanel?.team_summary?.record ?? "-"} | {homePanel?.team_summary?.division ?? "-"} Division: {homePanel?.team_summary?.division_rank ?? "-"} place | {homePanel?.team_summary?.points ?? 0} pts
+            {" | "}PP% {(homePanel?.team_summary?.pp_pct ?? 0).toFixed(3)} | PK% {(homePanel?.team_summary?.pk_pct ?? 0).toFixed(3)}
+            {" | "}
+            {homePanel?.playoffs?.active ? "Playoffs" : "Regular Season"}
           </p>
           {homePanel ? (
             <div className="split">
               <div>
                 <h3>Latest Team Game</h3>
-                {homePanel.latest_game ? (
+                {(homePanel.playoffs?.active && homePanel.playoffs.latest_team_game) || homePanel.latest_game ? (
                   <>
-                    <GameSummaryCard game={homePanel.latest_game} teamLogos={meta?.team_logos} />
+                    <GameSummaryCard
+                      game={(homePanel.playoffs?.active && homePanel.playoffs.latest_team_game) ? homePanel.playoffs.latest_team_game : homePanel.latest_game!}
+                      teamLogos={meta?.team_logos}
+                      showTeamLabels={false}
+                    />
                     <p className="muted">
-                      Day {homePanel.latest_game_day} | {homePanel.latest_game.away} {homePanel.latest_game.away_goals} at {homePanel.latest_game.home} {homePanel.latest_game.home_goals}
-                      {homePanel.latest_game.overtime ? " (OT)" : ""}
+                      {(homePanel.playoffs?.active && homePanel.playoffs.latest_team_game) ? (
+                        <>
+                          Playoff Day {homePanel.playoffs.latest_team_game_day ?? "-"} / {homePanel.playoffs.total_days ?? "-"}
+                          {homePanel.playoffs.latest_team_game.round ? ` | ${homePanel.playoffs.latest_team_game.round}` : ""}
+                          {homePanel.playoffs.latest_team_game.game_number ? ` | Game ${homePanel.playoffs.latest_team_game.game_number}` : ""}
+                          {homePanel.playoffs.latest_team_game.series_higher_seed && homePanel.playoffs.latest_team_game.series_lower_seed
+                            ? ` | Series ${homePanel.playoffs.latest_team_game.series_higher_seed} ${homePanel.playoffs.latest_team_game.series_high_wins ?? 0}-${homePanel.playoffs.latest_team_game.series_low_wins ?? 0} ${homePanel.playoffs.latest_team_game.series_lower_seed}`
+                            : ""}
+                        </>
+                      ) : (
+                        <>
+                          Day {homePanel.latest_game_day} | {homePanel.latest_game?.away} {homePanel.latest_game?.away_goals} at {homePanel.latest_game?.home} {homePanel.latest_game?.home_goals}
+                          {homePanel.latest_game?.overtime ? " (OT)" : ""}
+                        </>
+                      )}
                     </p>
-                    {(homePanel.recent_team_games ?? []).length > 0 ? (
-                      <div>
-                        <h3>Recent Team Games</h3>
-                        <div className="score-list">
-                          {(homePanel.recent_team_games ?? [])
-                            .filter(
-                              (g) =>
-                                !homePanel.latest_game
-                                || g.home !== homePanel.latest_game.home
-                                || g.away !== homePanel.latest_game.away
-                                || g.home_goals !== homePanel.latest_game.home_goals
-                                || g.away_goals !== homePanel.latest_game.away_goals,
-                            )
-                            .map((g, idx) => (
-                            <div key={`home-day-${idx}-${g.away}-${g.home}`}>
-                              <p className="muted">Day {g.game_day ?? "-"}</p>
-                              <GameSummaryCard game={g} teamLogos={meta?.team_logos} />
-                            </div>
-                            ))}
-                        </div>
-                      </div>
-                    ) : null}
                   </>
-                ) : null}
-                {homePanel.playoffs?.active && homePanel.playoffs.latest_team_game ? (
-                  <div>
-                    <h3>Latest Playoff Result</h3>
-                    <p className="muted">
-                      Playoff Day {homePanel.playoffs.latest_team_game_day ?? "-"} / {homePanel.playoffs.total_days ?? "-"}
-                      {homePanel.playoffs.latest_team_game.round ? ` | ${homePanel.playoffs.latest_team_game.round}` : ""}
-                      {homePanel.playoffs.latest_team_game.game_number ? ` | Game ${homePanel.playoffs.latest_team_game.game_number}` : ""}
-                    </p>
-                    <GameSummaryCard game={homePanel.playoffs.latest_team_game} teamLogos={meta?.team_logos} />
-                  </div>
                 ) : null}
                 {homePanel.upcoming_game ? (
                   <div>
@@ -1162,24 +1303,78 @@ export default function App() {
                     </div>
                   </div>
                 ) : null}
+                {(homePanel.recent_team_games ?? []).length > 0 ? (
+                  <div>
+                    <h3>Recent Team Games</h3>
+                    <div className="score-list">
+                      {(homePanel.recent_team_games ?? [])
+                        .filter(
+                          (g) =>
+                            !homePanel.latest_game
+                            || g.home !== homePanel.latest_game.home
+                            || g.away !== homePanel.latest_game.away
+                            || g.home_goals !== homePanel.latest_game.home_goals
+                            || g.away_goals !== homePanel.latest_game.away_goals,
+                        )
+                        .map((g, idx) => (
+                        <div key={`home-day-${idx}-${g.away}-${g.home}`}>
+                          <p className="muted">Day {g.game_day ?? "-"}</p>
+                          <GameSummaryCard game={g} teamLogos={meta?.team_logos} showTeamLabels={false} />
+                        </div>
+                        ))}
+                    </div>
+                  </div>
+                ) : null}
               </div>
               <div>
+                {(homePanel.news ?? []).length > 0 ? (
+                  <div>
+                    <h3>League News</h3>
+                    <div className="results">
+                      {(homePanel.news ?? []).slice(0, 30).map((n, idx) => (
+                        <div key={`news-${idx}-${n.headline}`} className="line">
+                          S{n.season} {n.day > 0 ? `D${n.day}` : "Offseason"} | {n.headline}{n.details ? ` - ${n.details}` : ""}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
                 <h3>Coach</h3>
-                <p className="muted">{homePanel.coach.name}</p>
-                <p className="muted">Rating {homePanel.coach.rating.toFixed(2)} | Style {homePanel.coach.style}</p>
+                <button onClick={() => setShowCoachDetails((v) => !v)}>
+                  {homePanel.coach.name}
+                </button>
+                {showCoachDetails ? (
+                  <>
+                    <p className="muted">Record {homePanel.coach.record ?? "-"} | Rating {homePanel.coach.rating.toFixed(2)} | Style {homePanel.coach.style}</p>
+                    <p className="muted">
+                      Off {homePanel.coach.offense.toFixed(2)} | Def {homePanel.coach.defense.toFixed(2)} | Goalie Dev {homePanel.coach.goalie_dev.toFixed(2)}
+                    </p>
+                    <p className="muted">
+                      Strategy: {homePanel.control.user_strategy} | Override Lines: {homePanel.control.override_coach_for_lines ? "On" : "Off"} | Override Strategy: {homePanel.control.override_coach_for_strategy ? "On" : "Off"}
+                    </p>
+                    <p className="muted">
+                      Game Mode: {homePanel.control.game_mode.toUpperCase()}
+                    </p>
+                  </>
+                ) : null}
+                <h3>Fan Sentiment</h3>
                 <p className="muted">
-                  Off {homePanel.coach.offense.toFixed(2)} | Def {homePanel.coach.defense.toFixed(2)} | Goalie Dev {homePanel.coach.goalie_dev.toFixed(2)}
-                </p>
-                <p className="muted">
-                  Strategy: {homePanel.control.user_strategy} | Override Lines: {homePanel.control.override_coach_for_lines ? "On" : "Off"} | Override Strategy: {homePanel.control.override_coach_for_strategy ? "On" : "Off"}
-                </p>
-                <p className="muted">
-                  Game Mode: {homePanel.control.game_mode.toUpperCase()} | PP% {(homePanel.special_teams?.pp_pct ?? 0).toFixed(3)} | PK% {(homePanel.special_teams?.pk_pct ?? 0).toFixed(3)}
-                </p>
-                <p className="muted">
-                  Fan Sentiment: {homePanel.fan_sentiment?.score?.toFixed(1) ?? "-"} / 100 ({homePanel.fan_sentiment?.mood ?? "Unknown"}, {homePanel.fan_sentiment?.trend ?? "Flat"})
+                  <span>{moodFace(homePanel.fan_sentiment?.mood)} </span>
+                  {homePanel.fan_sentiment?.score?.toFixed(1) ?? "-"} / 100 ({homePanel.fan_sentiment?.mood ?? "Unknown"}){" "}
+                  <span className={homePanel.fan_sentiment?.trend === "Rising" ? "pos" : homePanel.fan_sentiment?.trend === "Falling" ? "neg" : ""}>
+                    {trendArrow(homePanel.fan_sentiment?.trend)} {homePanel.fan_sentiment?.trend ?? "Flat"}
+                  </span>
                 </p>
                 <p className="muted">{homePanel.fan_sentiment?.summary ?? ""}</p>
+                <h3>Locker Room</h3>
+                <p className="muted">
+                  <span>{moodFace(homePanel.locker_room?.mood)} </span>
+                  {homePanel.locker_room?.score?.toFixed(1) ?? "-"} / 100 ({homePanel.locker_room?.mood ?? "Unknown"}){" "}
+                  <span className={homePanel.locker_room?.trend === "Rising" ? "pos" : homePanel.locker_room?.trend === "Falling" ? "neg" : ""}>
+                    {trendArrow(homePanel.locker_room?.trend)} {homePanel.locker_room?.trend ?? "Flat"}
+                  </span>
+                </p>
+                <p className="muted">{homePanel.locker_room?.summary ?? ""}</p>
               </div>
             </div>
           ) : (
@@ -1220,15 +1415,42 @@ export default function App() {
       {playerCareer ? (
         <div className="modal-overlay" onClick={() => setPlayerCareer(null)}>
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-            <h3>{playerCareer.player.name}</h3>
+            <h3>{playerCareer.player.flag ? `${playerCareer.player.flag} ` : ""}{playerCareer.player.name}</h3>
             <p className="muted">
-              Position: {playerCareer.player.position} | Team: {playerCareer.player.team} | Draft: {playerCareer.player.draft_label ?? "Undrafted"}
+              Position: {playerCareer.player.position} | Team: {playerCareer.player.team} | Country: {playerCareer.player.country ?? "-"} | Draft: {playerCareer.player.draft_label ?? "Undrafted"}
             </p>
             <div className="modal-lines">
+              {playerCareer.player.position === "G" ? (
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Season</th><th>Team</th><th>Age</th><th>Pos</th><th>GP</th><th>W</th><th>L</th><th>OTL</th><th>GAA</th><th>SV%</th><th>Inj</th><th>Missed</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {playerCareer.career.map((row, idx) => (
+                      <tr key={`${playerCareer.player.team}-${playerCareer.player.name}-${row.season}-${idx}`}>
+                        <td>{row.is_current ? `${row.season} (Current)` : row.season}</td>
+                        <td>{row.team}</td>
+                        <td>{row.age}</td>
+                        <td>{row.position}</td>
+                        <td>{row.goalie_gp}</td>
+                        <td>{row.goalie_w}</td>
+                        <td>{row.goalie_l}</td>
+                        <td>{row.goalie_otl}</td>
+                        <td>{Number(row.gaa ?? 0).toFixed(2)}</td>
+                        <td>{Number(row.sv_pct ?? 0).toFixed(3)}</td>
+                        <td>{row.injuries}</td>
+                        <td>{row.games_missed}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
               <table>
                 <thead>
                   <tr>
-                    <th>Season</th><th>Team</th><th>Age</th><th>Pos</th><th>GP</th><th>G</th><th>A</th><th>P</th><th>Inj</th><th>Missed</th><th>GGP</th><th>W</th><th>L</th><th>OTL</th><th>GAA</th><th>SV%</th>
+                    <th>Season</th><th>Team</th><th>Age</th><th>Pos</th><th>GP</th><th>G</th><th>A</th><th>P</th><th>Inj</th><th>Missed</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1244,16 +1466,11 @@ export default function App() {
                       <td>{row.p}</td>
                       <td>{row.injuries}</td>
                       <td>{row.games_missed}</td>
-                      <td>{row.goalie_gp}</td>
-                      <td>{row.goalie_w}</td>
-                      <td>{row.goalie_l}</td>
-                      <td>{row.goalie_otl}</td>
-                      <td>{Number(row.gaa ?? 0).toFixed(2)}</td>
-                      <td>{Number(row.sv_pct ?? 0).toFixed(3)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+              )}
             </div>
             <button onClick={() => setPlayerCareer(null)}>Close</button>
           </div>
@@ -1286,6 +1503,12 @@ function GameSummaryCard({
     periods?: Array<{ label: string; home: number; away: number }>;
     commentary?: string[];
     three_stars?: Array<{ label: string; summary: string }>;
+    round?: string;
+    game_number?: number;
+    series_higher_seed?: string;
+    series_lower_seed?: string;
+    series_high_wins?: number;
+    series_low_wins?: number;
   };
   teamLogos?: Record<string, string>;
   showCommentary?: boolean;
@@ -1305,6 +1528,11 @@ function GameSummaryCard({
           </div>
         </div>
         <div className="muted small">Goalies: {game.away_goalie || "-"} {game.away_goalie_sv || ""} | {game.home_goalie || "-"} {game.home_goalie_sv || ""}</div>
+        {game.series_higher_seed && game.series_lower_seed ? (
+          <div className="muted small">
+            {game.round ?? "Playoffs"}{game.game_number ? ` | Game ${game.game_number}` : ""} | Series: {game.series_higher_seed} {game.series_high_wins ?? 0}-{game.series_low_wins ?? 0} {game.series_lower_seed}
+          </div>
+        ) : null}
         <div className="muted small">
           Attendance: {typeof game.attendance === "number" ? game.attendance.toLocaleString() : "-"}
           {typeof game.arena_capacity === "number" ? `/${game.arena_capacity.toLocaleString()}` : ""}
@@ -1339,7 +1567,7 @@ function GameSummaryCard({
             ))}
           </div>
         ) : null}
-        {(game.three_stars ?? []).length > 0 ? (
+        {!showCommentary && (game.three_stars ?? []).length > 0 ? (
           <div className="muted small">
             {(game.three_stars ?? []).map((s) => `${s.label}: ${s.summary}`).join(" | ")}
           </div>
@@ -1370,7 +1598,7 @@ function StandingsTable({ rows }: { rows: StandingRow[] }) {
   );
 }
 
-function LeaderBlock<T extends { name: string; team: string }>({
+function LeaderBlock<T extends { name: string; team: string; flag?: string }>({
   title,
   valueLabel,
   rows,
@@ -1408,7 +1636,7 @@ function LeaderBlock<T extends { name: string; team: string }>({
         {topRows.map((row, idx) => (
           <div key={`${row.team}-${row.name}-${title}`} className="leader-row row-clickable" onClick={() => onPick(row)}>
             <span className="leader-rank">{rankAt(idx)}</span>
-            <span className="leader-player">{row.name} <small>{row.team.slice(0, 3).toUpperCase()}</small></span>
+            <span className="leader-player">{row.flag ? `${row.flag} ` : ""}{row.name} <small>{row.team.slice(0, 3).toUpperCase()}</small></span>
             <span className="leader-value">{formatValue(getValue(row))}</span>
           </div>
         ))}

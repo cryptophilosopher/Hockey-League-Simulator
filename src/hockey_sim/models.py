@@ -29,6 +29,8 @@ class Player:
     goaltending: float
     physical: float
     durability: float
+    birth_country: str = "Canada"
+    birth_country_code: str = "CA"
     player_id: str = field(default_factory=lambda: uuid4().hex)
     age: int = 24
     prime_age: int = 27
@@ -92,6 +94,7 @@ class Team:
     secondary_color: str = "#d7e1f5"
     arena_capacity: int = 16000
     roster: list[Player] = field(default_factory=list)
+    minor_roster: list[Player] = field(default_factory=list)
     dressed_player_names: set[str] = field(default_factory=set)
     line_assignments: dict[str, str] = field(default_factory=dict)
     starting_goalie_name: str | None = None
@@ -106,6 +109,7 @@ class Team:
     coach_honeymoon_games_remaining: int = 0
 
     MAX_ROSTER_SIZE: ClassVar[int] = 22
+    MIN_MINOR_ROSTER_SIZE: ClassVar[int] = 10
     DRESSED_ROSTER_SIZE: ClassVar[int] = 20
     DRESSED_FORWARDS: ClassVar[int] = 12
     DRESSED_DEFENSE: ClassVar[int] = 6
