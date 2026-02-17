@@ -198,6 +198,29 @@ class SimService:
                 return event
         return None
 
+    def _inbox_event_exists(
+        self,
+        *,
+        event_type: str,
+        season: int,
+        day: int,
+        payload_key: str = "",
+    ) -> bool:
+        for event in self.inbox_events:
+            if str(event.get("type", "")) != event_type:
+                continue
+            if int(event.get("season", 0)) != int(season):
+                continue
+            if int(event.get("day", 0)) != int(day):
+                continue
+            payload = event.get("payload", {})
+            if not isinstance(payload, dict):
+                payload = {}
+            if payload_key and str(payload.get("key", "")) != payload_key:
+                continue
+            return True
+        return False
+
     def _resolve_inbox_event_internal(self, event: dict[str, Any], choice_id: str, auto: bool = False) -> dict[str, Any]:
         if bool(event.get("resolved", False)):
             return event
@@ -546,7 +569,7 @@ class SimService:
                 self._add_news(
                     kind="injury",
                     headline=f"Injury: {inj.player.name} ({result.home.name})",
-                    details=f"Expected out {inj.games_out} games after vs {result.away.name}.",
+                    details=f"{inj.injury_type} | {inj.injury_status} | Expected out {inj.games_out} games after vs {result.away.name}.",
                     team=result.home.name,
                     day=day_num,
                 )
@@ -554,10 +577,100 @@ class SimService:
                 self._add_news(
                     kind="injury",
                     headline=f"Injury: {inj.player.name} ({result.away.name})",
-                    details=f"Expected out {inj.games_out} games after at {result.home.name}.",
+                    details=f"{inj.injury_type} | {inj.injury_status} | Expected out {inj.games_out} games after at {result.home.name}.",
                     team=result.away.name,
                     day=day_num,
                 )
+
+    def _injury_inbox_from_results(self, day_num: int, results: list[GameResult]) -> None:
+        team = self._user_team()
+        if team is None:
+            return
+        user_team_name = team.name
+        for result in results:
+            user_side_injuries = []
+            if result.home.name == user_team_name:
+                user_side_injuries = list(result.home_injuries)
+            elif result.away.name == user_team_name:
+                user_side_injuries = list(result.away_injuries)
+            for inj in user_side_injuries:
+                payload_key = f"{inj.player.player_id}:{day_num}:injury"
+                if self._inbox_event_exists(
+                    event_type="injury_alert",
+                    season=self.simulator.season_number,
+                    day=day_num,
+                    payload_key=payload_key,
+                ):
+                    continue
+                self._add_inbox_event(
+                    day_num=day_num,
+                    event_type="injury_alert",
+                    title=f"Injury Report: {inj.player.name}",
+                    details=(
+                        f"{inj.injury_type} | {inj.injury_status} | Expected out {inj.games_out} games. "
+                        "Open Call Ups to promote a replacement if needed."
+                    ),
+                    options=[
+                        {
+                            "id": "acknowledge",
+                            "label": "Acknowledge",
+                            "description": "Keep simming and manage roster as needed.",
+                        }
+                    ],
+                    payload={
+                        "key": payload_key,
+                        "player_name": inj.player.name,
+                        "injury_type": inj.injury_type,
+                        "injury_status": inj.injury_status,
+                        "games_out": inj.games_out,
+                        "navigate_to": "callups",
+                    },
+                    expires_in_days=5,
+                    auto_choice_id="acknowledge",
+                )
+
+    def _returning_soon_inbox(self, day_num: int) -> None:
+        team = self._user_team()
+        if team is None:
+            return
+        for p in sorted(team.roster, key=lambda x: x.name):
+            if int(p.injured_games_remaining) != 1:
+                continue
+            payload_key = f"{p.player_id}:{day_num}:returning"
+            if self._inbox_event_exists(
+                event_type="injury_returning",
+                season=self.simulator.season_number,
+                day=day_num,
+                payload_key=payload_key,
+            ):
+                continue
+            temp_replacements = [rp.name for rp in team.roster if str(rp.temporary_replacement_for) == p.name]
+            replacement_text = f" Temporary call-up: {', '.join(temp_replacements)}." if temp_replacements else ""
+            self._add_inbox_event(
+                day_num=day_num,
+                event_type="injury_returning",
+                title=f"Return Alert: {p.name}",
+                details=(
+                    f"{p.name} ({p.injury_type or 'Injury'} | {p.injury_status or 'IR'}) is expected back next game day."
+                    f"{replacement_text} Open Call Ups to plan your roster move."
+                ),
+                options=[
+                    {
+                        "id": "acknowledge",
+                        "label": "Acknowledge",
+                        "description": "Review call-ups and roster decisions.",
+                    }
+                ],
+                payload={
+                    "key": payload_key,
+                    "player_name": p.name,
+                    "injury_type": p.injury_type,
+                    "injury_status": p.injury_status,
+                    "navigate_to": "callups",
+                },
+                expires_in_days=2,
+                auto_choice_id="acknowledge",
+            )
 
     def _draft_news_from_offseason(
         self,
@@ -2223,10 +2336,22 @@ class SimService:
                 "name": p.name,
                 "jersey_number": p.jersey_number,
                 "position": p.position,
+                "injury_type": p.injury_type,
+                "injury_status": p.injury_status,
                 "games_out": p.injured_games_remaining,
             }
             for p in sorted(team.roster, key=lambda x: (-x.injured_games_remaining, x.name))
             if p.is_injured
+        ]
+        returning_tomorrow = [
+            {
+                "name": p.name,
+                "position": p.position,
+                "injury_type": p.injury_type,
+                "injury_status": p.injury_status,
+            }
+            for p in sorted(team.roster, key=lambda x: x.name)
+            if int(p.injured_games_remaining) == 1
         ]
 
         roster_rows = []
@@ -2240,6 +2365,7 @@ class SimService:
                     "injured": p.is_injured,
                     "games_out": p.injured_games_remaining,
                     "dressed": team.is_dressed(p),
+                    "temporary_replacement_for": p.temporary_replacement_for,
                     "overall": round(
                         p.goaltending
                         if p.position in GOALIE_POSITIONS
@@ -2274,7 +2400,9 @@ class SimService:
             "team": team.name,
             "active_count": len([p for p in team.roster if not p.is_injured]),
             "max_active": Team.MAX_ROSTER_SIZE,
+            "projected_next_day_active": self._projected_active_count_next_day(team.name),
             "injuries": injuries,
+            "returning_tomorrow": returning_tomorrow,
             "roster": roster_rows,
             "minors": minor_rows,
         }
@@ -2285,7 +2413,19 @@ class SimService:
             raise HTTPException(status_code=400, detail="No team selected")
         if chosen != self.user_team_name:
             raise HTTPException(status_code=403, detail="Can only manage call ups for your team")
-        ok = self.simulator.promote_minor_player(chosen, player_name)
+        team = self.simulator.get_team(chosen)
+        if team is not None and len([p for p in team.roster if not p.is_injured]) >= Team.MAX_ROSTER_SIZE:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Active roster is full ({Team.MAX_ROSTER_SIZE}/{Team.MAX_ROSTER_SIZE}). Send a player down first.",
+            )
+        replacement_for = ""
+        if team is not None:
+            injured_pool = [p for p in team.roster if p.is_injured]
+            if injured_pool:
+                injured_pool.sort(key=lambda p: (-p.injured_games_remaining, p.name))
+                replacement_for = injured_pool[0].name
+        ok = self.simulator.promote_minor_player(chosen, player_name, replacement_for=replacement_for)
         if not ok:
             team = self.simulator.get_team(chosen)
             active_count = len([p for p in team.roster if not p.is_injured]) if team is not None else 0
@@ -2296,7 +2436,10 @@ class SimService:
         self._add_news(
             kind="transaction",
             headline=f"Transaction: {chosen} recalled {player_name}",
-            details=f"{player_name} was called up from the minor league club.",
+            details=(
+                f"{player_name} was called up from the minor league club."
+                + (f" Temporary replacement for {replacement_for}." if replacement_for else "")
+            ),
             team=chosen,
             day=self.simulator.current_day,
         )
@@ -3043,6 +3186,8 @@ class SimService:
         if not self.user_team_name:
             raise HTTPException(status_code=400, detail="No user team selected")
 
+        self._returning_soon_inbox(day_num=self.simulator.current_day)
+
         # Legacy cleanup: roster-limit inbox flow was replaced by direct sim-time validation.
         pre_len = len(self.inbox_events)
         self.inbox_events = [
@@ -3090,6 +3235,7 @@ class SimService:
                     if prev_left > 0 and int(p.injured_games_remaining) <= 0:
                         returned_players.append(p.name)
             self._injury_news_from_results(day_num=day_num, results=results)
+            self._injury_inbox_from_results(day_num=day_num, results=results)
             self._log_auto_roster_transactions(before=roster_before, day_num=day_num)
             serialized = self._serialize_games(results)
             self.daily_results = [

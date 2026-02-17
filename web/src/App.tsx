@@ -524,7 +524,9 @@ type CallupsPayload = {
   team: string;
   active_count: number;
   max_active: number;
-  injuries: Array<{ name: string; position: string; games_out: number }>;
+  projected_next_day_active?: number;
+  injuries: Array<{ name: string; position: string; injury_type?: string; injury_status?: string; games_out: number }>;
+  returning_tomorrow?: Array<{ name: string; position: string; injury_type?: string; injury_status?: string }>;
   roster: Array<{
     name: string;
     position: string;
@@ -532,6 +534,7 @@ type CallupsPayload = {
     injured: boolean;
     games_out: number;
     dressed: boolean;
+    temporary_replacement_for?: string;
     overall: number;
   }>;
   minors: Array<{
@@ -717,6 +720,8 @@ export default function App() {
       };
     });
   }, [players]);
+
+  const isActiveRosterFull = (callupsData?.active_count ?? 0) >= (callupsData?.max_active ?? 22);
 
   function trendArrow(trend?: string): string {
     if (trend === "Rising") return "\u25B2";
@@ -1078,7 +1083,7 @@ export default function App() {
     ["league_records", "League Records"],
   ];
   const teamNav: Array<[MainNavKey, string]> = [
-    ["home", "Home"],
+    ["home", `Home${inboxEvents.length > 0 ? ` (${inboxEvents.length})` : ""}`],
     ["transactions", "Transactions"],
     ["contracts", "Contracts"],
     ["free_agents", "Free Agents"],
@@ -1120,6 +1125,19 @@ export default function App() {
     if (!hasCurrent) {
       handleNavSelect(nextScope === "league" ? "scores" : "home");
     }
+  }
+
+  function openCallupsPage() {
+    setNavScope("team");
+    setMainNav("callups");
+    void loadCallups();
+  }
+
+  function openHomePage() {
+    setNavScope("team");
+    setMainNav("home");
+    void loadHome();
+    void loadInbox();
   }
 
   return (
@@ -1221,9 +1239,14 @@ export default function App() {
             League
           </button>
           <button className={navScope === "team" ? "scope-btn active" : "scope-btn"} onClick={() => handleScopeChange("team")}>
-            Team
+            Team{inboxEvents.length > 0 ? ` (${inboxEvents.length})` : ""}
           </button>
         </div>
+        {navScope === "league" && inboxEvents.length > 0 ? (
+          <button className="tab" onClick={() => openHomePage()}>
+            GM Tasks ({inboxEvents.length})
+          </button>
+        ) : null}
         <div className="top-nav">
           {(navScope === "league" ? leagueNav : teamNav).map(([key, label]) => (
             <button
@@ -1599,6 +1622,9 @@ export default function App() {
                         </button>
                       </span>
                     ))}
+                    {String(ev.payload?.navigate_to ?? "") === "callups" ? (
+                      <button onClick={() => openCallupsPage()}>Go to Call Ups</button>
+                    ) : null}
                   </div>
                   {ev.type === "trade_offer" && ev.payload ? (
                     <p className="muted">
@@ -1737,17 +1763,34 @@ export default function App() {
           <p className="muted">
             Manage promotions from minors and send-downs when injuries hit.
             {" | "}Active roster: {callupsData?.active_count ?? 0}/{callupsData?.max_active ?? 22}
+            {" | "}Projected next day: {callupsData?.projected_next_day_active ?? (callupsData?.active_count ?? 0)}/{callupsData?.max_active ?? 22}
           </p>
+          {isActiveRosterFull ? <p className="neg small">Active roster is full. Send a player down before calling someone up.</p> : null}
+          {(callupsData?.returning_tomorrow ?? []).length > 0 ? (
+            <div>
+              <h3>Returning Next Game Day</h3>
+              <table className="banded">
+                <thead><tr><th>Player</th><th>Pos</th><th>Type</th><th>Status</th></tr></thead>
+                <tbody>
+                  {(callupsData?.returning_tomorrow ?? []).map((r) => (
+                    <tr key={`ret-${r.name}`}>
+                      <td>{r.name}</td><td>{r.position}</td><td>{r.injury_type ?? "-"}</td><td>{r.injury_status ?? "-"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
           <h3>Injury List</h3>
           {(callupsData?.injuries ?? []).length === 0 ? (
             <p className="muted">No active injuries.</p>
           ) : (
             <table className="banded">
-              <thead><tr><th>Player</th><th>Pos</th><th>Games Out</th></tr></thead>
+              <thead><tr><th>Player</th><th>Pos</th><th>Type</th><th>Status</th><th>Games Out</th></tr></thead>
               <tbody>
                 {(callupsData?.injuries ?? []).map((r) => (
                   <tr key={`inj-${r.name}`}>
-                    <td>{r.name}</td><td>{r.position}</td><td className="neg">{r.games_out}</td>
+                    <td>{r.name}</td><td>{r.position}</td><td>{r.injury_type ?? "-"}</td><td>{r.injury_status ?? "-"}</td><td className="neg">{r.games_out}</td>
                   </tr>
                 ))}
               </tbody>
@@ -1765,7 +1808,7 @@ export default function App() {
                       <td>{r.position}</td>
                       <td>{r.age}</td>
                       <td>{r.overall.toFixed(2)}</td>
-                      <td>{r.injured ? `IR ${r.games_out}` : (r.dressed ? "Dressed" : "Active")}</td>
+                      <td>{r.injured ? `IR ${r.games_out}` : (r.temporary_replacement_for ? `Temp for ${r.temporary_replacement_for}` : (r.dressed ? "Dressed" : "Active"))}</td>
                       <td><button onClick={() => void demoteRosterPlayer(r.name)}>Send Down</button></td>
                     </tr>
                   ))}
@@ -1785,7 +1828,15 @@ export default function App() {
                       <td>{r.tier}</td>
                       <td>{r.seasons_to_nhl}</td>
                       <td>{r.overall.toFixed(2)}</td>
-                      <td><button onClick={() => void promoteCallup(r.name)} disabled={r.injured}>Call Up</button></td>
+                      <td>
+                        <button
+                          onClick={() => void promoteCallup(r.name)}
+                          disabled={r.injured || isActiveRosterFull}
+                          title={isActiveRosterFull ? "Active roster full. Send a player down first." : ""}
+                        >
+                          Call Up
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -2166,6 +2217,9 @@ export default function App() {
                                 </button>
                               </span>
                             ))}
+                            {String(ev.payload?.navigate_to ?? "") === "callups" ? (
+                              <button onClick={() => openCallupsPage()}>Go to Call Ups</button>
+                            ) : null}
                           </div>
                         </article>
                       ))}
