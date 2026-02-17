@@ -41,6 +41,10 @@ class Player:
     injuries: int = 0
     injured_games_remaining: int = 0
     games_missed_injury: int = 0
+    injury_type: str = ""
+    injury_status: str = "Healthy"
+    dtd_play_today: bool = False
+    temporary_replacement_for: str = ""
     goalie_games: int = 0
     goalie_wins: int = 0
     goalie_losses: int = 0
@@ -71,7 +75,19 @@ class Player:
 
     @property
     def is_injured(self) -> bool:
-        return self.injured_games_remaining > 0
+        return self.injured_games_remaining > 0 and self.injury_status != "DTD"
+
+    @property
+    def is_dtd(self) -> bool:
+        return self.injured_games_remaining > 0 and self.injury_status == "DTD"
+
+    @property
+    def can_play_today(self) -> bool:
+        if self.injured_games_remaining <= 0:
+            return True
+        if self.injury_status == "DTD":
+            return self.dtd_play_today
+        return False
 
     @property
     def scoring_weight(self) -> float:
@@ -159,7 +175,7 @@ class Team:
         return ((token % 37) - 18) / 18.0
 
     def _healthy(self, players: list[Player]) -> list[Player]:
-        return [p for p in players if not p.is_injured]
+        return [p for p in players if p.can_play_today]
 
     def _player_by_name(self, player_name: str) -> Player | None:
         for player in self.roster:
@@ -172,7 +188,7 @@ class Team:
             self.starting_goalie_name = None
             return True
         player = self._player_by_name(player_name)
-        if player is None or player.position != "G" or player.is_injured or not self.is_dressed(player):
+        if player is None or player.position != "G" or not player.can_play_today or not self.is_dressed(player):
             return False
         self.starting_goalie_name = player.name
         return True
@@ -181,7 +197,7 @@ class Team:
         return player.name in self.dressed_player_names
 
     def dressed_players(self) -> list[Player]:
-        return [p for p in self.roster if p.name in self.dressed_player_names and not p.is_injured]
+        return [p for p in self.roster if p.name in self.dressed_player_names and p.can_play_today]
 
     def dressed_skaters(self) -> list[Player]:
         return [p for p in self.dressed_players() if p.position != "G"]
@@ -194,7 +210,7 @@ class Team:
             if not name or name in used:
                 continue
             player = self._player_by_name(name)
-            if player is None or player.is_injured:
+            if player is None or not player.can_play_today:
                 continue
             out.append(player)
             used.add(name)
@@ -210,7 +226,7 @@ class Team:
             if not name or name in used:
                 continue
             player = self._player_by_name(name)
-            if player is None or player.is_injured:
+            if player is None or not player.can_play_today:
                 continue
             out.append(player)
             used.add(name)
@@ -226,7 +242,7 @@ class Team:
             if not name or name in used:
                 continue
             player = self._player_by_name(name)
-            if player is None or player.is_injured:
+            if player is None or not player.can_play_today:
                 continue
             out.append(player)
             used.add(name)
@@ -350,7 +366,7 @@ class Team:
         ) -> Player | None:
             for pool in (preferred, fallback):
                 for candidate in pool:
-                    if candidate.name not in used and not candidate.is_injured:
+                    if candidate.name not in used and candidate.can_play_today:
                         return candidate
             return None
 
@@ -401,12 +417,12 @@ class Team:
             req_name = str(requested.get(slot, "")).strip()
             if req_name:
                 req_player = self._player_by_name(req_name)
-                if req_player is not None and not req_player.is_injured and req_player.name not in used:
+                if req_player is not None and req_player.can_play_today and req_player.name not in used:
                     chosen_name = req_player.name
             if not chosen_name:
                 auto_name = str(auto_assignments.get(slot, "")).strip()
                 auto_player = self._player_by_name(auto_name) if auto_name else None
-                if auto_player is not None and not auto_player.is_injured and auto_player.name not in used:
+                if auto_player is not None and auto_player.can_play_today and auto_player.name not in used:
                     chosen_name = auto_player.name
             if not chosen_name:
                 for p in healthy_sorted:
@@ -431,7 +447,7 @@ class Team:
                 penalty += 0.08
                 continue
             player = self._player_by_name(name)
-            if player is None or player.is_injured:
+            if player is None or not player.can_play_today:
                 penalty += 0.08
                 continue
             expected = self._slot_expected_position(slot)
@@ -453,7 +469,7 @@ class Team:
         return min(0.40, penalty)
 
     def can_dress_player(self, player: Player) -> bool:
-        if player.is_injured:
+        if not player.can_play_today:
             return False
         if self.is_dressed(player):
             return True
@@ -463,7 +479,7 @@ class Team:
 
     def toggle_dressed_status(self, player_name: str) -> bool:
         player = self._player_by_name(player_name)
-        if player is None or player.is_injured:
+        if player is None or not player.can_play_today:
             return False
 
         if player.name in self.dressed_player_names:

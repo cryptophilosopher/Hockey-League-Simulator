@@ -27,6 +27,8 @@ class GoalEvent:
 class InjuryEvent:
     player: Player
     games_out: int
+    injury_type: str
+    injury_status: str
 
 
 @dataclass(slots=True)
@@ -383,6 +385,43 @@ def _sample_games_missed(rng: random.Random, strategy_mult: float) -> int:
     return games
 
 
+INJURY_PROFILES: tuple[tuple[str, tuple[int, int], float], ...] = (
+    ("Upper-body", (1, 8), 0.28),
+    ("Lower-body", (2, 12), 0.30),
+    ("Concussion", (4, 20), 0.12),
+    ("Core/Mid-body", (2, 10), 0.12),
+    ("Illness/Recovery", (1, 4), 0.08),
+    ("Fracture/Structural", (12, 82), 0.10),
+)
+
+
+def _injury_status_from_games(games_out: int) -> str:
+    if games_out <= 3:
+        return "DTD"
+    if games_out <= 24:
+        return "IR"
+    if games_out <= 60:
+        return "LTIR"
+    return "Season-ending"
+
+
+def _sample_injury_taxonomy(rng: random.Random, strategy_mult: float) -> tuple[str, int]:
+    roll = rng.random()
+    cumulative = 0.0
+    picked = INJURY_PROFILES[0]
+    for profile in INJURY_PROFILES:
+        cumulative += profile[2]
+        if roll <= cumulative:
+            picked = profile
+            break
+    injury_type, (low, high), _weight = picked
+    if injury_type == "Fracture/Structural":
+        severity_boost = max(0, int(round((strategy_mult - 1.0) * 8)))
+        low = max(low, low + severity_boost)
+    games_out = rng.randint(low, high)
+    return injury_type, games_out
+
+
 def _apply_injuries(team: Team, strategy: str, rng: random.Random) -> list[InjuryEvent]:
     strategy_effect = STRATEGY_EFFECTS.get(strategy, STRATEGY_EFFECTS["balanced"])
     injury_mult = strategy_effect["injury_mult"]
@@ -393,13 +432,37 @@ def _apply_injuries(team: Team, strategy: str, rng: random.Random) -> list[Injur
         durability_mod = max(0.55, 1.35 - player.durability / 10.0)
         position_mod = 0.65 if player.position == "G" else 1.0
         probability = BASE_INJURY_EVENT_RATE * injury_mult * durability_mod * position_mod
+        is_playing_hurt = player.is_dtd and player.dtd_play_today
+        if is_playing_hurt:
+            probability *= 1.85
 
         if rng.random() < probability:
-            games_out = _sample_games_missed(rng, injury_mult)
+            injury_type, taxonomy_games = _sample_injury_taxonomy(rng, injury_mult)
+            sampled_games = _sample_games_missed(rng, injury_mult)
+            games_out = max(sampled_games, taxonomy_games)
+            if is_playing_hurt:
+                games_out = max(games_out, player.injured_games_remaining + rng.randint(2, 9))
+                games_out = max(games_out, 4)
+                if rng.random() < 0.35:
+                    injury_type = f"{injury_type} aggravation"
+            injury_status = _injury_status_from_games(games_out)
+            if injury_status == "Season-ending":
+                # Keep season-ending injuries out through playoffs; reset happens in offseason.
+                games_out = max(games_out, 200)
             player.injuries += 1
             player.injured_games_remaining = max(player.injured_games_remaining, games_out)
             player.games_missed_injury += games_out
-            events.append(InjuryEvent(player=player, games_out=games_out))
+            player.injury_type = injury_type
+            player.injury_status = injury_status
+            player.dtd_play_today = False
+            events.append(
+                InjuryEvent(
+                    player=player,
+                    games_out=games_out,
+                    injury_type=injury_type,
+                    injury_status=injury_status,
+                )
+            )
 
     return events
 
@@ -451,6 +514,19 @@ def simulate_game(
     away_strength += away_context_bonus
     home_strength -= home_fatigue
     away_strength -= away_fatigue
+
+    home_dtd = [p for p in (home.dressed_players() or home.active_players()) if p.is_dtd and p.dtd_play_today]
+    away_dtd = [p for p in (away.dressed_players() or away.active_players()) if p.is_dtd and p.dtd_play_today]
+    if home_dtd:
+        skater_impact = sum(0.018 + max(0.0, (3.4 - p.durability)) * 0.007 for p in home_dtd if p.position != "G")
+        goalie_impact = 0.12 if any(p.position == "G" for p in home_dtd) else 0.0
+        home_strength -= min(0.24, skater_impact)
+        away_strength += min(0.20, skater_impact * 0.75 + goalie_impact)
+    if away_dtd:
+        skater_impact = sum(0.018 + max(0.0, (3.4 - p.durability)) * 0.007 for p in away_dtd if p.position != "G")
+        goalie_impact = 0.12 if any(p.position == "G" for p in away_dtd) else 0.0
+        away_strength -= min(0.24, skater_impact)
+        home_strength += min(0.20, skater_impact * 0.75 + goalie_impact)
 
     # Emergency goalie handling: a non-goalie in net should make winning very unlikely.
     if home_goalie is None:
@@ -505,17 +581,27 @@ def simulate_game(
         if home_injury_mult != 1.0:
             for injury in home_injuries:
                 adjusted = max(1, int(round(injury.games_out * home_injury_mult)))
+                injury.injury_status = _injury_status_from_games(adjusted)
+                if injury.injury_status == "Season-ending":
+                    adjusted = max(adjusted, 200)
                 delta = adjusted - injury.games_out
                 injury.games_out = adjusted
+                injury.injury_status = _injury_status_from_games(adjusted)
                 injury.player.injured_games_remaining = max(injury.player.injured_games_remaining, adjusted)
                 injury.player.games_missed_injury += delta
+                injury.player.injury_status = injury.injury_status
         if away_injury_mult != 1.0:
             for injury in away_injuries:
                 adjusted = max(1, int(round(injury.games_out * away_injury_mult)))
+                injury.injury_status = _injury_status_from_games(adjusted)
+                if injury.injury_status == "Season-ending":
+                    adjusted = max(adjusted, 200)
                 delta = adjusted - injury.games_out
                 injury.games_out = adjusted
+                injury.injury_status = _injury_status_from_games(adjusted)
                 injury.player.injured_games_remaining = max(injury.player.injured_games_remaining, adjusted)
                 injury.player.games_missed_injury += delta
+                injury.player.injury_status = injury.injury_status
 
     home_win = home_goals > away_goals
     home_goalie_shots = 0

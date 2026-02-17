@@ -163,6 +163,59 @@ class SimService:
             return None
         return self.simulator.get_team(self.user_team_name)
 
+    def _auto_callup_best_candidate(
+        self,
+        team: Team,
+        *,
+        injured_name: str = "",
+        injured_position: str = "",
+    ) -> tuple[str, str] | None:
+        active_count = len([p for p in team.roster if not p.is_injured])
+        if active_count >= Team.MAX_ROSTER_SIZE:
+            return None
+
+        target_pos = injured_position.strip().upper()
+        minors = [p for p in team.minor_roster if not p.is_injured]
+        if not minors:
+            return None
+
+        def _fit_score(player: Player) -> float:
+            pos = str(player.position or "").upper()
+            if not target_pos:
+                return 1.0
+            if target_pos == "G":
+                return 1.0 if pos == "G" else -10.0
+            if target_pos in {"C", "LW", "RW"}:
+                if pos == target_pos:
+                    return 1.0
+                if pos in {"C", "LW", "RW"}:
+                    return 0.7
+                return 0.1
+            if target_pos == "D":
+                if pos == "D":
+                    return 1.0
+                if pos in {"C", "LW", "RW"}:
+                    return 0.15
+                return 0.05
+            return 0.5
+
+        ranked = sorted(
+            minors,
+            key=lambda p: (_fit_score(p), self._player_overall(p)),
+            reverse=True,
+        )
+        if not ranked:
+            return None
+        if target_pos == "G" and str(ranked[0].position).upper() != "G":
+            return None
+
+        chosen = ranked[0]
+        replacement_for = injured_name.strip()
+        ok = self.simulator.promote_minor_player(team.name, chosen.name, replacement_for=replacement_for)
+        if not ok:
+            return None
+        return chosen.name, replacement_for
+
     def _add_inbox_event(
         self,
         day_num: int,
@@ -229,6 +282,7 @@ class SimService:
         if not isinstance(payload, dict):
             payload = {}
         team = self._user_team()
+        action_note = ""
 
         if team is not None and event_type == "injury":
             injured_name = str(payload.get("injured_name", ""))
@@ -236,6 +290,67 @@ class SimService:
                 player = next((p for p in [*team.roster, *team.minor_roster] if p.name == injured_name), None)
                 if player is not None and player.injured_games_remaining > 0:
                     player.injured_games_remaining = max(0, player.injured_games_remaining - 1)
+
+        if team is not None and event_type == "injury_alert":
+            if choice_id == "auto_call_up":
+                injured_name = str(payload.get("player_name", "")).strip()
+                injured_position = str(payload.get("injured_position", "")).strip()
+                called = self._auto_callup_best_candidate(
+                    team,
+                    injured_name=injured_name,
+                    injured_position=injured_position,
+                )
+                if called is not None:
+                    called_name, replacement_for = called
+                    self.simulator.normalize_player_numbers()
+                    team.set_default_lineup()
+                    action_note = (
+                        f"Auto call up: {called_name}"
+                        + (f" for {replacement_for}" if replacement_for else "")
+                    )
+                    self._add_news(
+                        kind="transaction",
+                        headline=f"Transaction: {team.name} recalled {called_name}",
+                        details=(
+                            f"{called_name} was called up automatically from minors."
+                            + (f" Temporary replacement for {replacement_for}." if replacement_for else "")
+                        ),
+                        team=team.name,
+                        day=self.simulator.current_day,
+                    )
+
+        if team is not None and event_type == "injury_returning":
+            if choice_id == "auto_send_down":
+                projected = self._projected_active_count_next_day(team.name)
+                if projected > Team.MAX_ROSTER_SIZE:
+                    returning_name = str(payload.get("player_name", "")).strip()
+                    healthy = [p for p in team.roster if not p.is_injured]
+                    candidate = next(
+                        (p for p in healthy if str(getattr(p, "temporary_replacement_for", "")) == returning_name),
+                        None,
+                    )
+                    if candidate is None:
+                        candidates = self._demotion_candidates(team.name)
+                        candidate = candidates[0] if candidates else None
+                    if candidate is not None:
+                        demote_name = candidate.name
+                        ok = self.simulator.demote_roster_player(team.name, demote_name)
+                        if ok:
+                            action_note = (
+                                f"Auto send down: {demote_name}"
+                                + (f" for {returning_name} return" if returning_name else "")
+                            )
+                            self._add_news(
+                                kind="transaction",
+                                headline=f"Transaction: {team.name} assigned {demote_name}",
+                                details=(
+                                    f"{demote_name} was auto-assigned to minors ahead of {returning_name} returning from injury."
+                                    if returning_name
+                                    else f"{demote_name} was auto-assigned to minors for roster compliance."
+                                ),
+                                team=team.name,
+                                day=self.simulator.current_day,
+                            )
 
         if team is not None and event_type == "coach_pressure":
             if choice_id == "back_coach":
@@ -302,6 +417,20 @@ class SimService:
                     prospect.prospect_potential = min(0.99, prospect.prospect_potential + 0.03)
 
         if team is not None and event_type == "roster_limit":
+            if choice_id == "auto_best_send_down":
+                candidates = self._demotion_candidates(team.name)
+                if candidates:
+                    demote_name = candidates[0].name
+                    ok = self.simulator.demote_roster_player(team.name, demote_name)
+                    if ok:
+                        action_note = f"Auto send down: {demote_name}"
+                        self._add_news(
+                            kind="transaction",
+                            headline=f"Transaction: {team.name} assigned {demote_name}",
+                            details=f"{demote_name} was auto-assigned to minors after IR return roster decision.",
+                            team=team.name,
+                            day=self.simulator.current_day,
+                        )
             if choice_id.startswith("demote::"):
                 demote_name = choice_id.split("::", 1)[1].strip()
                 if demote_name:
@@ -322,6 +451,8 @@ class SimService:
             "season": int(self.simulator.season_number),
             "day": int(self.simulator.current_day),
         }
+        if action_note:
+            event["result_note"] = action_note
         return event
 
     def _expire_inbox_events(self, day_num: int) -> None:
@@ -498,6 +629,14 @@ class SimService:
             }
             for p in candidates
         ]
+        options.insert(
+            0,
+            {
+                "id": "auto_best_send_down",
+                "label": "Auto Best Send Down",
+                "description": "Automatically send down the top demotion candidate based on roster-balance and player value.",
+            },
+        )
         returned_label = ", ".join(returned_players[:3]) if returned_players else "an injured player"
         details = (
             f"Active roster is {active_count}/{Team.MAX_ROSTER_SIZE} after {returned_label} returned from IR. "
@@ -615,11 +754,17 @@ class SimService:
                             "id": "acknowledge",
                             "label": "Acknowledge",
                             "description": "Keep simming and manage roster as needed.",
-                        }
+                        },
+                        {
+                            "id": "auto_call_up",
+                            "label": "Auto Call Up",
+                            "description": "Automatically call up the best healthy minor-league fit for this injury.",
+                        },
                     ],
                     payload={
                         "key": payload_key,
                         "player_name": inj.player.name,
+                        "injured_position": inj.player.position,
                         "injury_type": inj.injury_type,
                         "injury_status": inj.injury_status,
                         "games_out": inj.games_out,
@@ -659,7 +804,12 @@ class SimService:
                         "id": "acknowledge",
                         "label": "Acknowledge",
                         "description": "Review call-ups and roster decisions.",
-                    }
+                    },
+                    {
+                        "id": "auto_send_down",
+                        "label": "Auto Send Down",
+                        "description": "Automatically send down the best roster candidate to stay compliant when this player returns.",
+                    },
                 ],
                 payload={
                     "key": payload_key,
@@ -808,14 +958,23 @@ class SimService:
         chosen = (team_name or self.user_team_name).strip()
         if not chosen:
             return []
+        chosen_l = chosen.lower()
         out: list[dict[str, Any]] = []
         for row in self.news_feed:
-            if str(row.get("kind", "")).lower() != "transaction":
-                continue
-            row_team = str(row.get("team", ""))
+            kind = str(row.get("kind", "")).lower().strip()
             headline = str(row.get("headline", ""))
             details = str(row.get("details", ""))
-            if row_team == chosen or chosen in headline or chosen in details:
+            headline_l = headline.lower()
+            details_l = details.lower()
+            is_transactionish = (
+                kind in {"transaction", "trade"}
+                or headline_l.startswith("transaction:")
+                or headline_l.startswith("trade:")
+            )
+            if not is_transactionish:
+                continue
+            row_team = str(row.get("team", "")).strip().lower()
+            if row_team == chosen_l or chosen_l in headline_l or chosen_l in details_l:
                 out.append(dict(row))
             if len(out) >= max(1, min(limit, 500)):
                 break
@@ -1302,6 +1461,7 @@ class SimService:
             "country_code": country_code,
             "injured": player.is_injured,
             "injured_games_remaining": player.injured_games_remaining,
+            "injury_status": player.injury_status,
         }
 
     def _team_logo_path(self, team_name: str):
@@ -1645,6 +1805,7 @@ class SimService:
             "shot_pct": round(shot_pct, 1),
             "injured": player.is_injured,
             "injured_games_remaining": player.injured_games_remaining,
+            "injury_status": player.injury_status,
         }
 
     def _cup_count(self, team_name: str) -> int:
@@ -1789,6 +1950,7 @@ class SimService:
             "sv_pct": round(player.save_pct, 3),
             "injured": player.is_injured,
             "injured_games_remaining": player.injured_games_remaining,
+            "injury_status": player.injury_status,
         }
 
     def lines(self, team_name: str | None = None) -> dict[str, Any]:
@@ -1869,6 +2031,7 @@ class SimService:
                 "country_code": str(p.birth_country_code or "CA").upper(),
                 "flag": self._flag_emoji(str(p.birth_country_code or "CA").upper()),
                 "games_remaining": p.injured_games_remaining,
+                "injury_status": p.injury_status,
             }
             for p in sorted(team.roster, key=lambda x: (x.injured_games_remaining * -1, x.name))
             if p.is_injured
@@ -1954,6 +2117,8 @@ class SimService:
             "strategies": self.simulator.strategies,
             "user_team": self.user_team_name,
             "user_team_logo": f"/api/team-logo/{self._team_slug(self.user_team_name)}" if self.user_team_name else "",
+            "user_team_primary_color": getattr(user_team, "primary_color", "#1f3a93") if user_team is not None else "#1f3a93",
+            "user_team_secondary_color": getattr(user_team, "secondary_color", "#d7e1f5") if user_team is not None else "#d7e1f5",
             "user_strategy": self.user_strategy,
             "use_coach": not (self.override_coach_for_lines or self.override_coach_for_strategy),
             "override_coach_for_lines": self.override_coach_for_lines,
@@ -2582,6 +2747,40 @@ class SimService:
             "summary": f"{mood} room ({trend.lower()} trend) shaped by results, injuries, and staff stability.",
         }
 
+    def _top_story_score(self, row: dict[str, Any], *, user_team: str) -> int:
+        kind = str(row.get("kind", "")).lower().strip()
+        headline = str(row.get("headline", ""))
+        details = str(row.get("details", ""))
+        txt = f"{headline} {details}".lower()
+        team = str(row.get("team", "")).strip()
+        score = 10
+
+        if kind in {"playoff", "cup", "award"}:
+            score += 90
+        if any(token in txt for token in ["champion", "cup final", "conference final", "clinch", "eliminat"]):
+            score += 80
+        if "mvp" in txt or "retired number" in txt:
+            score += 70
+        if kind == "injury":
+            # Routine injuries should not dominate top story.
+            score += 14
+            if any(token in txt for token in ["ltir", "season", "season-ending"]):
+                score += 28
+            if any(token in txt for token in ["expected out 8", "expected out 9", "expected out 10", "expected out 11", "expected out 12", "expected out 13", "expected out 14"]):
+                score += 16
+        if "trade:" in txt or kind == "trade":
+            score += 45
+        if any(token in txt for token in ["coach", "fired", "hired"]):
+            score += 40
+        if any(token in txt for token in ["free agency", "signed", "contract"]):
+            score += 35
+        # Routine recalls/assignments should be low-priority top stories.
+        if any(token in txt for token in ["assigned", "recalled", "called up", "send down", "sent down", "minor league"]):
+            score -= 35
+        if team and team == user_team:
+            score += 8
+        return score
+
     def playoff_data(self) -> dict[str, Any]:
         if isinstance(self.simulator.pending_playoffs, dict) and self.simulator.pending_playoffs:
             return {
@@ -2881,6 +3080,31 @@ class SimService:
 
         banners: list[dict[str, Any]] = []
         seen: set[tuple[int, str, str]] = set()
+
+        def _retired_year_range(player_name: str) -> tuple[int, int] | None:
+            if not player_name:
+                return None
+            seasons: list[int] = []
+            for entries in self.simulator.career_history.values():
+                if not isinstance(entries, list):
+                    continue
+                for row in entries:
+                    if not isinstance(row, dict):
+                        continue
+                    if str(row.get("name", "")).strip() != player_name:
+                        continue
+                    if str(row.get("team", "")).strip() != selected_team:
+                        continue
+                    raw_season = row.get("season")
+                    try:
+                        season_no = int(raw_season)
+                    except (TypeError, ValueError):
+                        continue
+                    if season_no > 0:
+                        seasons.append(season_no)
+            if not seasons:
+                return None
+            return min(seasons), max(seasons)
         for season in self.simulator.season_history:
             if not isinstance(season, dict):
                 continue
@@ -2961,6 +3185,7 @@ class SimService:
                 if key in seen:
                     continue
                 seen.add(key)
+                yr = _retired_year_range(player)
                 banners.append(
                     {
                         "season": season_no,
@@ -2969,6 +3194,8 @@ class SimService:
                         "team": selected_team,
                         "number": jersey_no,
                         "player": player,
+                        "start_year": (yr[0] if yr is not None else max(1, season_no - 12)),
+                        "end_year": (yr[1] if yr is not None else max(1, season_no - 1)),
                     }
                 )
 
@@ -3188,20 +3415,16 @@ class SimService:
 
         self._returning_soon_inbox(day_num=self.simulator.current_day)
 
-        # Legacy cleanup: roster-limit inbox flow was replaced by direct sim-time validation.
-        pre_len = len(self.inbox_events)
-        self.inbox_events = [
-            ev
-            for ev in self.inbox_events
-            if str(ev.get("type", "")) != "roster_limit"
-        ]
-        if len(self.inbox_events) != pre_len:
-            self._save_runtime_state()
-
         projected_active = self._projected_active_count_next_day(self.user_team_name)
         if projected_active > Team.MAX_ROSTER_SIZE:
             now_active = self._active_roster_count(self.user_team_name)
             returns = projected_active - now_active
+            team = self._user_team()
+            returning_names: list[str] = []
+            if team is not None:
+                returning_names = [p.name for p in team.roster if int(p.injured_games_remaining) == 1]
+            self._queue_roster_limit_decisions(day_num=self.simulator.current_day, returned_players=returning_names)
+            self._save_runtime_state()
             raise HTTPException(
                 status_code=400,
                 detail=(
@@ -3582,8 +3805,61 @@ class SimService:
         if season_news:
             latest_news_day = max(int(row.get("day", 0)) for row in season_news)
             payload["news"] = [row for row in season_news if int(row.get("day", 0)) == latest_news_day][:60]
+            # Pick top story from the latest few days to reduce repetitive injury-only headlines.
+            story_candidates = [row for row in season_news if int(row.get("day", 0)) >= max(0, latest_news_day - 2)]
+            major_or_non_injury = []
+            for row in story_candidates:
+                kind = str(row.get("kind", "")).lower().strip()
+                txt = f"{str(row.get('headline', ''))} {str(row.get('details', ''))}".lower()
+                is_major_injury = (
+                    kind == "injury"
+                    and (
+                        any(token in txt for token in ["ltir", "season", "season-ending"])
+                        or any(token in txt for token in ["expected out 8", "expected out 9", "expected out 10", "expected out 11", "expected out 12", "expected out 13", "expected out 14"])
+                    )
+                )
+                if kind != "injury" or is_major_injury:
+                    major_or_non_injury.append(row)
+            pool = major_or_non_injury or story_candidates
+            if pool:
+                ranked = sorted(
+                    pool,
+                    key=lambda r: (
+                        self._top_story_score(r, user_team=team.name),
+                        int(r.get("day", 0)),
+                    ),
+                    reverse=True,
+                )
+                payload["top_story"] = ranked[0]
+            else:
+                payload["top_story"] = None
         else:
             payload["news"] = []
+            payload["top_story"] = None
+        gm_notifications: list[dict[str, Any]] = []
+        for row in self.news_feed:
+            row_team = str(row.get("team", "")).strip()
+            if row_team != team.name:
+                continue
+            kind = str(row.get("kind", "")).lower().strip()
+            if kind != "transaction":
+                continue
+            headline = str(row.get("headline", ""))
+            details = str(row.get("details", ""))
+            txt = f"{headline} {details}".lower()
+            if "auto" not in txt and "automatically" not in txt:
+                continue
+            gm_notifications.append(
+                {
+                    "season": int(row.get("season", self.simulator.season_number)),
+                    "day": int(row.get("day", 0)),
+                    "headline": headline,
+                    "details": details,
+                }
+            )
+            if len(gm_notifications) >= 5:
+                break
+        payload["gm_notifications"] = gm_notifications
         return payload
 
     def reset(self) -> dict[str, Any]:

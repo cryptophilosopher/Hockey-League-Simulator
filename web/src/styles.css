@@ -36,6 +36,13 @@ body {
   gap: 12px;
 }
 
+.logo-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
 .team-logo {
   width: 108px;
   height: 108px;
@@ -44,6 +51,18 @@ body {
   border: 1px solid #c7d7eb;
   border-radius: 12px;
   padding: 4px;
+}
+
+.logo-bars {
+  width: 82px;
+  display: grid;
+  gap: 2px;
+}
+
+.logo-bar {
+  height: 4px;
+  border-radius: 999px;
+  display: block;
 }
 
 .topbar h1 {
@@ -635,6 +654,41 @@ table.banded tbody tr.row-clickable:hover td {
   color: #6b7f9b;
 }
 
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 2px 7px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.1;
+  margin-right: 6px;
+}
+
+.status-chip.dtd {
+  background: #e8f0fb;
+  color: #244264;
+  border: 1px solid #c3d3ea;
+}
+
+.status-chip.ir {
+  background: #fdecea;
+  color: #be2e27;
+  border: 1px solid #f2b9b3;
+}
+
+.status-chip.ltir {
+  background: #ffe7d9;
+  color: #a54a13;
+  border: 1px solid #f1c39f;
+}
+
+.status-chip.season {
+  background: #ece8ff;
+  color: #4b3ba8;
+  border: 1px solid #cfc6f6;
+}
+
 .text-link {
   color: #1d5eaa;
   text-decoration: none;
@@ -715,6 +769,63 @@ table.banded tbody tr.row-clickable:hover td {
   color: var(--banner-primary, #2d3a4d);
   border: 1px solid color-mix(in srgb, var(--banner-primary, #2d3a4d) 30%, #ffffff);
   background: color-mix(in srgb, var(--banner-secondary, #d7e1f5) 28%, #ffffff);
+}
+
+.retired-player {
+  font-size: clamp(18px, 2.2vw, 30px);
+  font-weight: 900;
+  line-height: 1.02;
+  letter-spacing: 0.4px;
+  color: var(--banner-primary, #1f1f1f);
+  text-transform: uppercase;
+  margin-top: 4px;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.retired-number {
+  font-size: 74px;
+  font-weight: 900;
+  line-height: 0.95;
+  color: var(--banner-primary, #111);
+  text-shadow:
+    -1px -1px 0 var(--banner-secondary, #d7e1f5),
+    1px -1px 0 var(--banner-secondary, #d7e1f5),
+    -1px 1px 0 var(--banner-secondary, #d7e1f5),
+    1px 1px 0 var(--banner-secondary, #d7e1f5);
+  margin: 8px 0 12px;
+}
+
+.retired-stripe {
+  height: 12px;
+  border-radius: 2px;
+  margin: 0 10px 10px;
+  background: linear-gradient(
+    180deg,
+    var(--banner-primary, #111) 0%,
+    var(--banner-primary, #111) 45%,
+    var(--banner-secondary, #d7e1f5) 45%,
+    var(--banner-secondary, #d7e1f5) 100%
+  );
+}
+
+.retired-years {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 24px;
+  font-weight: 900;
+  color: #222;
+  letter-spacing: 0.5px;
+}
+
+.retired-mini-logo {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
 }
 
 @media (max-width: 1100px) {

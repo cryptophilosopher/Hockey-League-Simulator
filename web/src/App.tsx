@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 type MainNavKey = "home" | "inbox" | "transactions" | "contracts" | "free_agents" | "scores" | "league_news" | "team_stats" | "league_stats" | "standings" | "league_records" | "cup_history" | "roster" | "lines" | "callups" | "minors" | "franchise" | "records" | "banners";
 type StandingsTab = "standings" | "wildcard" | "playoffs";
 type NavScope = "league" | "team";
+type TransactionFilter = "all" | "trades" | "callups" | "injuries" | "signings";
 
 type Meta = {
   teams: string[];
@@ -12,6 +13,8 @@ type Meta = {
   strategies: string[];
   user_team: string;
   user_team_logo: string;
+  user_team_primary_color?: string;
+  user_team_secondary_color?: string;
   user_strategy: string;
   use_coach: boolean;
   override_coach_for_lines: boolean;
@@ -90,6 +93,7 @@ type PlayerRow = {
   shot_pct: number;
   injured?: boolean;
   injured_games_remaining?: number;
+  injury_status?: string;
 };
 
 type GoalieRow = {
@@ -109,6 +113,7 @@ type GoalieRow = {
   sv_pct: number;
   injured?: boolean;
   injured_games_remaining?: number;
+  injury_status?: string;
 };
 
 type CareerRow = {
@@ -388,6 +393,20 @@ type HomePanel = {
     season: number;
     day: number;
   }>;
+  top_story?: {
+    kind: string;
+    headline: string;
+    details: string;
+    team?: string;
+    season: number;
+    day: number;
+  } | null;
+  gm_notifications?: Array<{
+    season: number;
+    day: number;
+    headline: string;
+    details: string;
+  }>;
   playoffs?: {
     active: boolean;
     day?: number;
@@ -451,7 +470,7 @@ type LinesPayload = {
   }>;
   candidates: Array<{ name: string; pos: string; flag?: string }>;
   extra_players?: Array<{ name: string; pos: string; flag?: string }>;
-  injuries?: Array<{ name: string; pos: string; flag?: string; games_remaining: number }>;
+  injuries?: Array<{ name: string; pos: string; flag?: string; games_remaining: number; injury_status?: string }>;
 };
 
 type MinorPlayerRow = {
@@ -483,6 +502,7 @@ type RosterBioRow = {
   birthdate: string;
   injured?: boolean;
   injured_games_remaining?: number;
+  injury_status?: string;
 };
 
 type RosterPayload = {
@@ -518,7 +538,9 @@ type InboxEvent = {
   expires_day: number;
   resolved: boolean;
   resolution?: { choice_id?: string; auto?: boolean; season?: number; day?: number } | null;
+  result_note?: string;
 };
+type InboxResolveResponse = { ok: boolean; event: InboxEvent };
 
 type CallupsPayload = {
   team: string;
@@ -584,6 +606,8 @@ type BannersPayload = {
     team: string;
     number?: number;
     player?: string;
+    start_year?: number;
+    end_year?: number;
   }>;
 };
 
@@ -677,6 +701,7 @@ export default function App() {
   const [cupHistoryRows, setCupHistoryRows] = useState<CupHistoryRow[]>([]);
   const [inboxEvents, setInboxEvents] = useState<InboxEvent[]>([]);
   const [transactions, setTransactions] = useState<TransactionRow[]>([]);
+  const [transactionFilter, setTransactionFilter] = useState<TransactionFilter>("all");
   const [contractsData, setContractsData] = useState<ContractsPayload | null>(null);
   const [freeAgentsData, setFreeAgentsData] = useState<FreeAgentsPayload | null>(null);
   const [leagueNews, setLeagueNews] = useState<TransactionRow[]>([]);
@@ -686,6 +711,7 @@ export default function App() {
   const [navScope, setNavScope] = useState<NavScope>("league");
   const [gameModeLocal, setGameModeLocal] = useState<"gm" | "coach" | "both">("gm");
   const [showCoachDetails, setShowCoachDetails] = useState(false);
+  const [autoActionToast, setAutoActionToast] = useState("");
   const [loading, setLoading] = useState(false);
   const [simBusy, setSimBusy] = useState(false);
   const [error, setError] = useState("");
@@ -723,6 +749,31 @@ export default function App() {
 
   const isActiveRosterFull = (callupsData?.active_count ?? 0) >= (callupsData?.max_active ?? 22);
 
+  const filteredTransactions = useMemo(() => {
+    if (transactionFilter === "all") return transactions;
+    return transactions.filter((t) => {
+      const text = `${t.kind} ${t.headline} ${t.details}`.toLowerCase();
+      if (transactionFilter === "trades") return text.includes("trade");
+      if (transactionFilter === "callups") {
+        return (
+          text.includes("called up")
+          || text.includes("recalled")
+          || text.includes("assigned")
+          || text.includes("promoted")
+          || text.includes("demoted")
+          || text.includes("send down")
+          || text.includes("sent down")
+          || text.includes("waiver")
+        );
+      }
+      if (transactionFilter === "injuries") return text.includes("injury") || text.includes("ir");
+      if (transactionFilter === "signings") {
+        return text.includes("sign") || text.includes("signed") || text.includes("contract");
+      }
+      return true;
+    });
+  }, [transactions, transactionFilter]);
+
   function trendArrow(trend?: string): string {
     if (trend === "Rising") return "\u25B2";
     if (trend === "Falling") return "\u25BC";
@@ -745,6 +796,30 @@ export default function App() {
         {jerseyNumber ? <span className="player-num"> {jerseyNumber}</span> : null}
       </>
     );
+  }
+
+  function injuryStatusKey(status?: string, injured?: boolean): "dtd" | "ir" | "ltir" | "season" | "none" {
+    const s = (status ?? "").trim().toUpperCase();
+    if (!injured) return "none";
+    if (s.includes("SEASON")) return "season";
+    if (s.includes("LTIR")) return "ltir";
+    if (s.includes("DTD")) return "dtd";
+    return "ir";
+  }
+
+  function injuryStatusLabel(status?: string, injured?: boolean): string {
+    const key = injuryStatusKey(status, injured);
+    if (key === "dtd") return "DTD";
+    if (key === "ltir") return "LTIR";
+    if (key === "season") return "SEASON";
+    if (key === "ir") return "IR";
+    return "";
+  }
+
+  function renderInjuryChip(status?: string, injured?: boolean) {
+    const key = injuryStatusKey(status, injured);
+    if (key === "none") return null;
+    return <span className={`status-chip ${key}`}>{injuryStatusLabel(status, injured)}</span>;
   }
 
   async function loadMeta() {
@@ -778,8 +853,9 @@ export default function App() {
     setWildGroups(data.groups ?? {});
   }
 
-  async function loadLeaders(scope: "league" | "team") {
-    const teamQuery = scope === "team" ? `&team=${encodeURIComponent(meta?.user_team ?? "")}` : "";
+  async function loadLeaders(scope: "league" | "team", teamName?: string) {
+    const selectedTeam = teamName ?? meta?.user_team ?? "";
+    const teamQuery = scope === "team" ? `&team=${encodeURIComponent(selectedTeam)}` : "";
     const [p, g] = await Promise.all([
       fetchJson<PlayerRow[]>(`/players?scope=${scope}${teamQuery}`),
       fetchJson<GoalieRow[]>(`/goalies?scope=${scope}${teamQuery}`),
@@ -792,18 +868,20 @@ export default function App() {
     setPlayoffs(await fetchJson<PlayoffPayload>("/playoffs"));
   }
 
-  async function loadFranchise() {
-    if (!meta?.user_team) return;
-    setFranchise(await fetchJson<FranchisePayload>(`/franchise?team=${encodeURIComponent(meta.user_team)}`));
+  async function loadFranchise(teamName?: string) {
+    const chosen = teamName ?? meta?.user_team;
+    if (!chosen) return;
+    setFranchise(await fetchJson<FranchisePayload>(`/franchise?team=${encodeURIComponent(chosen)}`));
   }
 
   async function loadHome() {
     setHomePanel(await fetchJson<HomePanel>("/home"));
   }
 
-  async function loadLines() {
-    if (!meta?.user_team) return;
-    const payload = await fetchJson<LinesPayload>(`/lines?team=${encodeURIComponent(meta.user_team)}`);
+  async function loadLines(teamName?: string) {
+    const chosen = teamName ?? meta?.user_team;
+    if (!chosen) return;
+    const payload = await fetchJson<LinesPayload>(`/lines?team=${encodeURIComponent(chosen)}`);
     setLinesData(payload);
     setLineAssignments(payload.assignments ?? {});
   }
@@ -883,9 +961,9 @@ export default function App() {
       await Promise.all([
         loadStandings(standingsMode, m),
         loadWildCard(),
-        loadLeaders(leaderTarget),
+        loadLeaders(leaderTarget, m.user_team),
         loadPlayoffs(),
-        loadFranchise(),
+        loadFranchise(m.user_team),
         loadHome(),
         loadInbox(),
         (mainNav === "league_news" ? loadLeagueNews() : Promise.resolve()),
@@ -898,7 +976,7 @@ export default function App() {
         (mainNav === "cup_history" ? loadCupHistory() : Promise.resolve()),
         loadDayBoards(scoreTarget),
         (mainNav === "roster" ? loadRoster(m.user_team) : Promise.resolve()),
-        (mainNav === "lines" ? loadLines() : Promise.resolve()),
+        (mainNav === "lines" ? loadLines(m.user_team) : Promise.resolve()),
         (mainNav === "minors" ? loadMinorLeague(m.user_team) : Promise.resolve()),
       ]);
     } catch (err) {
@@ -965,12 +1043,16 @@ export default function App() {
   }
 
   async function resolveInboxEvent(eventId: number, choiceId: string) {
-    await fetchJson("/inbox/resolve", {
+    const resp = await fetchJson<InboxResolveResponse>("/inbox/resolve", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ event_id: eventId, choice_id: choiceId }),
     });
     await refreshAll();
+    if (choiceId === "auto_call_up" || choiceId === "auto_send_down" || choiceId === "auto_best_send_down") {
+      setAutoActionToast(resp?.event?.result_note || "Auto roster move completed.");
+      window.setTimeout(() => setAutoActionToast(""), 5000);
+    }
   }
 
   async function promoteCallup(playerName: string) {
@@ -1053,6 +1135,11 @@ export default function App() {
       await refreshAll();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+      try {
+        await refreshAll();
+      } catch {
+        // Keep original error visible; refresh can fail independently.
+      }
     } finally {
       setSimBusy(false);
     }
@@ -1144,7 +1231,21 @@ export default function App() {
     <div className="app-shell">
       <header className="topbar">
         <div className="brand">
-          {meta?.user_team_logo ? <img className="team-logo" src={logoUrl(meta.user_team_logo)} alt={meta.user_team} /> : null}
+          {meta?.user_team_logo ? (
+            <div className="logo-stack">
+              <img className="team-logo" src={logoUrl(meta.user_team_logo)} alt={meta.user_team} />
+              <div className="logo-bars">
+                <span
+                  className="logo-bar primary"
+                  style={{ background: meta.user_team_primary_color ?? "#1f3a93" }}
+                />
+                <span
+                  className="logo-bar secondary"
+                  style={{ background: meta.user_team_secondary_color ?? "#d7e1f5" }}
+                />
+              </div>
+            </div>
+          ) : null}
           <div>
             <h1>Hockey Sim Web</h1>
             <p>{summary}</p>
@@ -1232,6 +1333,7 @@ export default function App() {
       </header>
 
       {error ? <div className="error">{error}</div> : null}
+      {autoActionToast ? <div className="card">{autoActionToast}</div> : null}
 
       <nav className="top-nav-shell">
         <div className="scope-toggle">
@@ -1493,14 +1595,14 @@ export default function App() {
             <div><h3>Skaters</h3><table className="banded"><thead><tr><th>Player</th><th>Pos</th><th>GP</th><th>G</th><th>A</th><th>P</th><th>+/-</th><th>PIM</th><th>TOI/G</th><th>PPG</th><th>PPA</th><th>SHG</th><th>SHA</th><th>S</th><th>S%</th><th>Out</th></tr></thead><tbody>
               {players.map((p) => (
                 <tr key={`${p.team}-${p.name}`} className="row-clickable" onClick={() => void openPlayerCareer(p.team, p.name)}>
-                  <td>{p.injured ? <span className="neg">IR </span> : null}{playerLabel(p.name, p.jersey_number)}</td><td>{p.position}</td><td>{p.gp}</td><td>{p.g}</td><td>{p.a}</td><td>{p.p}</td><td>{p.plus_minus}</td><td>{p.pim}</td><td>{p.toi_g.toFixed(1)}</td><td>{p.ppg}</td><td>{p.ppa}</td><td>{p.shg}</td><td>{p.sha}</td><td>{p.shots}</td><td>{p.shot_pct.toFixed(1)}</td><td>{p.injured ? <span className="neg">{p.injured_games_remaining ?? 0}</span> : "-"}</td>
+                  <td>{playerLabel(p.name, p.jersey_number)}</td><td>{p.position}</td><td>{p.gp}</td><td>{p.g}</td><td>{p.a}</td><td>{p.p}</td><td>{p.plus_minus}</td><td>{p.pim}</td><td>{p.toi_g.toFixed(1)}</td><td>{p.ppg}</td><td>{p.ppa}</td><td>{p.shg}</td><td>{p.sha}</td><td>{p.shots}</td><td>{p.shot_pct.toFixed(1)}</td><td>{p.injured ? <span className="neg">{p.injured_games_remaining ?? 0}</span> : "-"}</td>
                 </tr>
               ))}
             </tbody></table></div>
             <div><h3>Goalies</h3><table className="banded"><thead><tr><th>Goalie</th><th>GP</th><th>W</th><th>L</th><th>OTL</th><th>SO</th><th>GAA</th><th>SV%</th><th>Out</th></tr></thead><tbody>
               {goalies.map((g) => (
                 <tr key={`${g.team}-${g.name}`} className="row-clickable" onClick={() => void openPlayerCareer(g.team, g.name)}>
-                  <td>{g.injured ? <span className="neg">IR </span> : null}{playerLabel(g.name, g.jersey_number)}</td><td>{g.gp}</td><td>{g.w}</td><td>{g.l}</td><td>{g.otl}</td><td>{g.so}</td><td>{g.gaa.toFixed(2)}</td><td>{g.sv_pct.toFixed(3)}</td><td>{g.injured ? <span className="neg">{g.injured_games_remaining ?? 0}</span> : "-"}</td>
+                  <td>{playerLabel(g.name, g.jersey_number)}</td><td>{g.gp}</td><td>{g.w}</td><td>{g.l}</td><td>{g.otl}</td><td>{g.so}</td><td>{g.gaa.toFixed(2)}</td><td>{g.sv_pct.toFixed(3)}</td><td>{g.injured ? <span className="neg">{g.injured_games_remaining ?? 0}</span> : "-"}</td>
                 </tr>
               ))}
             </tbody></table></div>
@@ -1575,20 +1677,32 @@ export default function App() {
                   <div className="banner-hang" />
                   <div
                     className="banner-fabric"
-                    style={
-                      {
-                        "--banner-primary": bannersData?.primary_color ?? "#1f3a93",
+                      style={
+                        {
+                          "--banner-primary": bannersData?.primary_color ?? "#1f3a93",
                         "--banner-secondary": bannersData?.secondary_color ?? "#d7e1f5",
                       } as Record<string, string>
                     }
                   >
-                    <div className="banner-team">{b.team.toUpperCase()}</div>
-                    {bannersData?.logo_url ? <img className="banner-logo" src={logoUrl(bannersData.logo_url)} alt={b.team} /> : null}
-                    <div className="banner-title">{b.title.toUpperCase()}</div>
                     {b.kind === "retired_number" ? (
-                      <div className="muted small">#{b.number ?? "-"} {b.player ?? ""}</div>
-                    ) : null}
-                    <div className="banner-season">SEASON {b.season}</div>
+                      <>
+                        <div className="retired-player">{(b.player ?? "").toUpperCase()}</div>
+                        <div className="retired-number">{b.number ?? "-"}</div>
+                        <div className="retired-stripe" />
+                        <div className="retired-years">
+                          <span>{typeof b.start_year === "number" ? `S${b.start_year}` : "-"}</span>
+                          {bannersData?.logo_url ? <img className="retired-mini-logo" src={logoUrl(bannersData.logo_url)} alt={b.team} /> : null}
+                          <span>{typeof b.end_year === "number" ? `S${b.end_year}` : "-"}</span>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="banner-team">{b.team.toUpperCase()}</div>
+                        {bannersData?.logo_url ? <img className="banner-logo" src={logoUrl(bannersData.logo_url)} alt={b.team} /> : null}
+                        <div className="banner-title">{b.title.toUpperCase()}</div>
+                        <div className="banner-season">SEASON {b.season}</div>
+                      </>
+                    )}
                   </div>
                 </div>
               ))}
@@ -1650,11 +1764,28 @@ export default function App() {
           <div className="section-head">
             <h2>{meta?.user_team ?? "Team"} Transactions</h2>
           </div>
-          {transactions.length === 0 ? (
+          <nav className="tabs">
+            {[
+              ["all", "All"],
+              ["trades", "Trades"],
+              ["callups", "Call Ups"],
+              ["injuries", "Injuries"],
+              ["signings", "Signings"],
+            ].map(([key, label]) => (
+              <button
+                key={`tx-filter-${key}`}
+                className={transactionFilter === key ? "tab active" : "tab"}
+                onClick={() => setTransactionFilter(key as TransactionFilter)}
+              >
+                {label}
+              </button>
+            ))}
+          </nav>
+          {filteredTransactions.length === 0 ? (
             <p>No transactions logged for your team yet.</p>
           ) : (
             <div className="results">
-              {transactions.map((t, idx) => (
+              {filteredTransactions.map((t, idx) => (
                 <div key={`tx-${idx}-${t.headline}`} className="line">
                   S{t.season} {t.day > 0 ? `D${t.day}` : "Offseason"} | {t.headline}{t.details ? ` - ${t.details}` : ""}
                 </div>
@@ -1865,7 +1996,7 @@ export default function App() {
                   <tbody>
                     {rows.map((r) => (
                       <tr key={`r-${groupName}-${r.name}`} className="row-clickable" onClick={() => void openPlayerCareer(r.team, r.name)}>
-                        <td>{playerLabel(r.name, r.jersey_number)}</td>
+                        <td>{renderInjuryChip(r.injury_status, r.injured)}{playerLabel(r.name, r.jersey_number)}</td>
                         <td>{r.age}</td>
                         <td>{r.height}</td>
                         <td>{r.weight_lbs} lbs</td>
@@ -2018,13 +2149,14 @@ export default function App() {
           {(linesData?.injuries ?? []).length > 0 ? (
             <table>
               <thead>
-                <tr><th>Player</th><th>Pos</th><th>Out (Games)</th></tr>
+                <tr><th>Player</th><th>Pos</th><th>Status</th><th>Out (Games)</th></tr>
               </thead>
               <tbody>
                 {(linesData?.injuries ?? []).map((inj) => (
                   <tr key={`inj-${inj.name}`}>
                     <td>{inj.name}</td>
                     <td>{inj.pos}</td>
+                    <td>{renderInjuryChip(inj.injury_status, true)}</td>
                     <td>{inj.games_remaining}</td>
                   </tr>
                 ))}
@@ -2122,6 +2254,17 @@ export default function App() {
             {" | "}
             {homePanel?.playoffs?.active ? "Playoffs" : "Regular Season"}
           </p>
+          {homePanel?.top_story ? (
+            <div className="score-card">
+              <h3>Top Story</h3>
+              <p className="muted">
+                S{homePanel.top_story.season ?? "-"} {((homePanel.top_story.day ?? 0) > 0) ? `D${homePanel.top_story.day}` : "Offseason"}
+                {" | "}
+                {homePanel.top_story.headline ?? ""}
+                {homePanel.top_story.details ? ` - ${homePanel.top_story.details}` : ""}
+              </p>
+            </div>
+          ) : null}
           {homePanel ? (
             <div className="split">
               <div>

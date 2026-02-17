@@ -237,7 +237,7 @@ def build_default_teams() -> list[Team]:
         ],
         "Central": [
             ("Prairie Storm", 0.22, 0.20, 0.22, "#0891b2", "#cffafe"),
-            ("Iron Rangers", 0.18, 0.30, 0.24, "#1f2937", "#e5e7eb"),
+            ("Iron Rangers", 0.18, 0.30, 0.24, "#1f2937", "#c1121f"),
             ("Lake Vipers", 0.26, 0.16, 0.18, "#0f766e", "#ccfbf1"),
             ("Granite Bears", 0.14, 0.28, 0.25, "#7f1d1d", "#fee2e2"),
             ("Steel River", 0.20, 0.24, 0.20, "#334155", "#e2e8f0"),

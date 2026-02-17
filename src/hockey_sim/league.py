@@ -12,8 +12,8 @@ from .names import NameGenerator
 from .schedule import build_round_robin_days
 
 PLAYER_BIRTH_COUNTRIES: tuple[tuple[str, str, float], ...] = (
-    ("Canada", "CA", 0.37),
-    ("United States", "US", 0.23),
+    ("Canada", "CA", 0.34),
+    ("United States", "US", 0.225),
     ("Sweden", "SE", 0.08),
     ("Finland", "FI", 0.06),
     ("Russia", "RU", 0.08),
@@ -23,6 +23,12 @@ PLAYER_BIRTH_COUNTRIES: tuple[tuple[str, str, float], ...] = (
     ("Switzerland", "CH", 0.03),
     ("Latvia", "LV", 0.02),
     ("Denmark", "DK", 0.02),
+    ("Lithuania", "LT", 0.01),
+    ("Norway", "NO", 0.005),
+    ("Belarus", "BY", 0.005),
+    ("Slovenia", "SI", 0.005),
+    ("Austria", "AT", 0.005),
+    ("France", "FR", 0.005),
 )
 
 
@@ -133,6 +139,7 @@ class LeagueSimulator:
         self.prime_age_max = max(prime_age_min, prime_age_max)
         self._ensure_minor_roster_depth()
         self._migrate_legacy_birth_countries()
+        self._migrate_team_branding()
         self._ensure_team_coaches()
         self._ensure_team_leadership()
         self._ensure_team_player_numbers()
@@ -318,6 +325,10 @@ class LeagueSimulator:
             "injuries": player.injuries,
             "injured_games_remaining": player.injured_games_remaining,
             "games_missed_injury": player.games_missed_injury,
+            "injury_type": player.injury_type,
+            "injury_status": player.injury_status,
+            "dtd_play_today": player.dtd_play_today,
+            "temporary_replacement_for": player.temporary_replacement_for,
             "goalie_games": player.goalie_games,
             "goalie_wins": player.goalie_wins,
             "goalie_losses": player.goalie_losses,
@@ -369,6 +380,10 @@ class LeagueSimulator:
             injuries=int(raw.get("injuries", 0)),
             injured_games_remaining=int(raw.get("injured_games_remaining", 0)),
             games_missed_injury=int(raw.get("games_missed_injury", 0)),
+            injury_type=str(raw.get("injury_type", "")),
+            injury_status=str(raw.get("injury_status", "Healthy")),
+            dtd_play_today=bool(raw.get("dtd_play_today", False)),
+            temporary_replacement_for=str(raw.get("temporary_replacement_for", "")),
             goalie_games=int(raw.get("goalie_games", 0)),
             goalie_wins=int(raw.get("goalie_wins", 0)),
             goalie_losses=int(raw.get("goalie_losses", 0)),
@@ -720,6 +735,12 @@ class LeagueSimulator:
                     player.birth_country = country
                     player.birth_country_code = code
 
+    def _migrate_team_branding(self) -> None:
+        for team in self.teams:
+            if team.name == "Iron Rangers":
+                team.primary_color = "#1f2937"
+                team.secondary_color = "#c1121f"
+
     def _coach_matchup_preference(self, team: Team, opponent: Team) -> str:
         team_top = sorted([p.scoring_weight for p in team.active_skaters()], reverse=True)[:6]
         opp_top = sorted([p.scoring_weight for p in opponent.active_skaters()], reverse=True)[:6]
@@ -841,6 +862,59 @@ class LeagueSimulator:
         if self._rng.random() <= starter_share:
             return starter
         return backup
+
+    def _coach_set_dtd_decisions(
+        self,
+        team: Team,
+        opponent: Team,
+        playoff_mode: bool = False,
+        elimination_game: bool = False,
+    ) -> None:
+        coach_quality = max(0.0, min(1.0, (team.coach_rating - 2.0) / 3.0))
+        style = team.coach_style if team.coach_style in {"aggressive", "balanced", "defensive"} else "balanced"
+        team_rec = self._records.get(team.name)
+        opp_rec = self._records.get(opponent.name)
+        underdog_push = 0.0
+        if team_rec is not None and opp_rec is not None and team_rec.point_pct + 0.015 < opp_rec.point_pct:
+            underdog_push = 0.04
+
+        for player in team.roster:
+            if not player.is_dtd:
+                player.dtd_play_today = False
+                continue
+
+            healthy_depth = [
+                p for p in team.roster
+                if p.name != player.name and p.position == player.position and p.injured_games_remaining <= 0
+            ]
+            if player.position in GOALIE_POSITIONS and not healthy_depth:
+                player.dtd_play_today = True
+                continue
+
+            if player.position in GOALIE_POSITIONS:
+                impact = player.goaltending
+            else:
+                impact = player.shooting * 0.40 + player.playmaking * 0.34 + player.defense * 0.20 + player.physical * 0.06
+            impact_push = max(0.0, impact - 3.3) * 0.08
+            severity = min(1.0, max(0.0, player.injured_games_remaining / 3.0))
+            severity_penalty = 0.14 * severity
+
+            play_probability = 0.34 + coach_quality * 0.22 + underdog_push + impact_push
+            if style == "aggressive":
+                play_probability += 0.08
+            elif style == "defensive":
+                play_probability -= 0.07
+            if not healthy_depth:
+                play_probability += 0.20
+            else:
+                play_probability -= 0.05
+            if playoff_mode:
+                play_probability += 0.11
+            if elimination_game:
+                play_probability += 0.10
+            play_probability -= severity_penalty
+            play_probability = self._clamp(play_probability, 0.12, 0.94)
+            player.dtd_play_today = self._rng.random() < play_probability
 
     def fire_coach(self, team_name: str) -> dict[str, object]:
         team = self.get_team(team_name)
@@ -1193,9 +1267,9 @@ class LeagueSimulator:
                 "complete": True,
                 "playoffs": self.pending_playoffs,
             }
-        # Keep injury recovery moving during playoffs so "games out" continues to decay.
+        # Playoff games are pre-simulated in _run_playoffs/_simulate_playoff_series,
+        # which already advances recovery game-by-game. Do not decay again on reveal.
         self._ensure_team_player_numbers()
-        self._advance_recovery_day()
         day = self.pending_playoff_days[self.pending_playoff_day_index]
         self.pending_playoff_day_index += 1
         complete = self.pending_playoff_day_index >= len(self.pending_playoff_days)
@@ -1212,8 +1286,12 @@ class LeagueSimulator:
     def _advance_recovery_day(self) -> None:
         for team in self.teams:
             for player in [*team.roster, *team.minor_roster]:
+                player.dtd_play_today = False
                 if player.injured_games_remaining > 0:
                     player.injured_games_remaining -= 1
+                    if player.injured_games_remaining <= 0:
+                        player.injury_type = ""
+                        player.injury_status = "Healthy"
 
     def simulate_next_day(
         self,
@@ -1242,6 +1320,8 @@ class LeagueSimulator:
         for home, away in day_games:
             self._ensure_team_depth(home)
             self._ensure_team_depth(away)
+            self._coach_set_dtd_decisions(home, away, playoff_mode=False)
+            self._coach_set_dtd_decisions(away, home, playoff_mode=False)
             if home.name != user_team_name or not use_user_lines:
                 home.set_default_lineup()
             if away.name != user_team_name or not use_user_lines:
@@ -1516,7 +1596,7 @@ class LeagueSimulator:
             return focus.upper()
         return None
 
-    def _promote_from_minors(self, team: Team, player: Player) -> bool:
+    def _promote_from_minors(self, team: Team, player: Player, replacement_for: str = "") -> bool:
         if player not in team.minor_roster:
             return False
         def _value(p: Player) -> float:
@@ -1571,17 +1651,18 @@ class LeagueSimulator:
                 team.starting_goalie_name = None
         team.minor_roster.remove(player)
         player.team_name = team.name
+        player.temporary_replacement_for = replacement_for.strip()
         team.roster.append(player)
         return True
 
-    def promote_minor_player(self, team_name: str, player_name: str) -> bool:
+    def promote_minor_player(self, team_name: str, player_name: str, replacement_for: str = "") -> bool:
         team = self.get_team(team_name)
         if team is None:
             return False
         player = next((p for p in team.minor_roster if p.name == player_name), None)
         if player is None:
             return False
-        moved = self._promote_from_minors(team, player)
+        moved = self._promote_from_minors(team, player, replacement_for=replacement_for)
         if not moved:
             return False
         self._assign_team_player_numbers(team)
@@ -1605,6 +1686,7 @@ class LeagueSimulator:
                 return False
 
         team.roster.remove(player)
+        player.temporary_replacement_for = ""
         team.minor_roster.append(player)
         team.dressed_player_names.discard(player.name)
         if team.starting_goalie_name == player.name:
@@ -1628,7 +1710,9 @@ class LeagueSimulator:
             if not candidates:
                 break
             promote = max(candidates, key=lambda p: p.goaltending)
-            if not self._promote_from_minors(team, promote):
+            injured_goalies = [p for p in team.roster if p.position in GOALIE_POSITIONS and p.is_injured]
+            replacement_for = injured_goalies[0].name if injured_goalies else ""
+            if not self._promote_from_minors(team, promote, replacement_for=replacement_for):
                 break
 
         while _healthy_count(team.roster, FORWARD_POSITIONS) < Team.DRESSED_FORWARDS:
@@ -1636,7 +1720,9 @@ class LeagueSimulator:
             if not candidates:
                 break
             promote = max(candidates, key=lambda p: (p.shooting + p.playmaking + p.defense))
-            if not self._promote_from_minors(team, promote):
+            injured_forwards = [p for p in team.roster if p.position in FORWARD_POSITIONS and p.is_injured]
+            replacement_for = injured_forwards[0].name if injured_forwards else ""
+            if not self._promote_from_minors(team, promote, replacement_for=replacement_for):
                 break
 
         while _healthy_count(team.roster, DEFENSE_POSITIONS) < Team.DRESSED_DEFENSE:
@@ -1644,7 +1730,9 @@ class LeagueSimulator:
             if not candidates:
                 break
             promote = max(candidates, key=lambda p: (p.defense + p.playmaking + p.physical))
-            if not self._promote_from_minors(team, promote):
+            injured_defense = [p for p in team.roster if p.position in DEFENSE_POSITIONS and p.is_injured]
+            replacement_for = injured_defense[0].name if injured_defense else ""
+            if not self._promote_from_minors(team, promote, replacement_for=replacement_for):
                 break
 
         team.set_default_lineup()
@@ -2022,7 +2110,7 @@ class LeagueSimulator:
                         p.durability,
                     ),
                 )
-                self._promote_from_minors(team, promote)
+                self._promote_from_minors(team, promote, replacement_for="")
 
             while len(team.roster) < Team.MAX_ROSTER_SIZE:
                 position = self._choose_draft_position(team)
@@ -2406,6 +2494,12 @@ class LeagueSimulator:
             self._advance_recovery_day()
             home = self._series_home_team(game_number, higher_seed, lower_seed)
             away = lower_seed if home.name == higher_seed.name else higher_seed
+            elimination_game = (
+                high_wins == wins_needed - 1
+                or low_wins == wins_needed - 1
+            )
+            self._coach_set_dtd_decisions(home, away, playoff_mode=True, elimination_game=elimination_game)
+            self._coach_set_dtd_decisions(away, home, playoff_mode=True, elimination_game=elimination_game)
             self._ensure_team_depth(home)
             self._ensure_team_depth(away)
             home.set_default_lineup()
@@ -2423,10 +2517,6 @@ class LeagueSimulator:
             home_context_bonus = 0.024
             away_context_bonus = -0.012
             randomness_scale = 1.0
-            elimination_game = (
-                high_wins == wins_needed - 1
-                or low_wins == wins_needed - 1
-            )
             if elimination_game:
                 randomness_scale = 1.32
                 if home.name == higher_seed.name:
@@ -2452,7 +2542,7 @@ class LeagueSimulator:
                 away_injury_mult=away_injury_mult,
                 rng=self._rng,
                 record_player_stats=False,
-                apply_injuries=False,
+                apply_injuries=True,
                 record_goalie_stats=False,
             )
             if playoff_tracker is not None:
