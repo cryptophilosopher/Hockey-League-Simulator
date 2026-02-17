@@ -60971,5 +60971,4084 @@
         }
       ]
     }
+  },
+  {
+    "season": 19,
+    "champion": "Aurora",
+    "standings": [
+      {
+        "team": "Atlantic Wolves",
+        "conference": "Eastern",
+        "division": "East",
+        "gp": 46,
+        "points": 59,
+        "point_pct": 0.641,
+        "wins": 28,
+        "losses": 15,
+        "ot_losses": 3,
+        "home": "15-7-1",
+        "away": "13-8-2",
+        "l10": "4-6-0",
+        "strk": "W2",
+        "gf": 171,
+        "ga": 148,
+        "gd": 23,
+        "pp_pct": 0.119,
+        "pk_pct": 0.856
+      },
+      {
+        "team": "Metro Sparks",
+        "conference": "Eastern",
+        "division": "East",
+        "gp": 46,
+        "points": 58,
+        "point_pct": 0.63,
+        "wins": 26,
+        "losses": 14,
+        "ot_losses": 6,
+        "home": "13-7-3",
+        "away": "13-7-3",
+        "l10": "5-2-3",
+        "strk": "OTL1",
+        "gf": 162,
+        "ga": 143,
+        "gd": 19,
+        "pp_pct": 0.157,
+        "pk_pct": 0.903
+      },
+      {
+        "team": "Granite Bears",
+        "conference": "Eastern",
+        "division": "Central",
+        "gp": 46,
+        "points": 56,
+        "point_pct": 0.609,
+        "wins": 24,
+        "losses": 14,
+        "ot_losses": 8,
+        "home": "13-4-6",
+        "away": "11-10-2",
+        "l10": "7-3-0",
+        "strk": "W4",
+        "gf": 134,
+        "ga": 125,
+        "gd": 9,
+        "pp_pct": 0.145,
+        "pk_pct": 0.839
+      },
+      {
+        "team": "Icebreakers",
+        "conference": "Western",
+        "division": "North",
+        "gp": 46,
+        "points": 55,
+        "point_pct": 0.598,
+        "wins": 25,
+        "losses": 16,
+        "ot_losses": 5,
+        "home": "12-10-1",
+        "away": "13-6-4",
+        "l10": "3-5-2",
+        "strk": "L2",
+        "gf": 150,
+        "ga": 133,
+        "gd": 17,
+        "pp_pct": 0.118,
+        "pk_pct": 0.855
+      },
+      {
+        "team": "Silver Pines",
+        "conference": "Western",
+        "division": "North",
+        "gp": 46,
+        "points": 54,
+        "point_pct": 0.587,
+        "wins": 25,
+        "losses": 17,
+        "ot_losses": 4,
+        "home": "13-8-2",
+        "away": "12-9-2",
+        "l10": "6-3-1",
+        "strk": "W2",
+        "gf": 196,
+        "ga": 169,
+        "gd": 27,
+        "pp_pct": 0.189,
+        "pk_pct": 0.848
+      },
+      {
+        "team": "Aurora",
+        "conference": "Western",
+        "division": "North",
+        "gp": 46,
+        "points": 53,
+        "point_pct": 0.576,
+        "wins": 26,
+        "losses": 19,
+        "ot_losses": 1,
+        "home": "15-8-0",
+        "away": "11-11-1",
+        "l10": "6-3-1",
+        "strk": "W2",
+        "gf": 176,
+        "ga": 142,
+        "gd": 34,
+        "pp_pct": 0.194,
+        "pk_pct": 0.861
+      },
+      {
+        "team": "Pacific Tide",
+        "conference": "Western",
+        "division": "West",
+        "gp": 46,
+        "points": 53,
+        "point_pct": 0.576,
+        "wins": 24,
+        "losses": 17,
+        "ot_losses": 5,
+        "home": "13-7-3",
+        "away": "11-10-2",
+        "l10": "5-4-1",
+        "strk": "W1",
+        "gf": 140,
+        "ga": 139,
+        "gd": 1,
+        "pp_pct": 0.163,
+        "pk_pct": 0.871
+      },
+      {
+        "team": "Lake Vipers",
+        "conference": "Eastern",
+        "division": "Central",
+        "gp": 46,
+        "points": 52,
+        "point_pct": 0.565,
+        "wins": 24,
+        "losses": 18,
+        "ot_losses": 4,
+        "home": "14-8-1",
+        "away": "10-10-3",
+        "l10": "5-5-0",
+        "strk": "W2",
+        "gf": 137,
+        "ga": 129,
+        "gd": 8,
+        "pp_pct": 0.143,
+        "pk_pct": 0.876
+      },
+      {
+        "team": "Glaciers",
+        "conference": "Western",
+        "division": "North",
+        "gp": 46,
+        "points": 52,
+        "point_pct": 0.565,
+        "wins": 25,
+        "losses": 19,
+        "ot_losses": 2,
+        "home": "13-10-0",
+        "away": "12-9-2",
+        "l10": "7-3-0",
+        "strk": "W4",
+        "gf": 161,
+        "ga": 155,
+        "gd": 6,
+        "pp_pct": 0.115,
+        "pk_pct": 0.865
+      },
+      {
+        "team": "Timberwolves",
+        "conference": "Western",
+        "division": "North",
+        "gp": 46,
+        "points": 52,
+        "point_pct": 0.565,
+        "wins": 25,
+        "losses": 19,
+        "ot_losses": 2,
+        "home": "16-7-0",
+        "away": "9-12-2",
+        "l10": "6-3-1",
+        "strk": "W1",
+        "gf": 154,
+        "ga": 151,
+        "gd": 3,
+        "pp_pct": 0.13,
+        "pk_pct": 0.849
+      },
+      {
+        "team": "Polar Caps",
+        "conference": "Western",
+        "division": "North",
+        "gp": 46,
+        "points": 52,
+        "point_pct": 0.565,
+        "wins": 23,
+        "losses": 17,
+        "ot_losses": 6,
+        "home": "14-7-2",
+        "away": "9-10-4",
+        "l10": "6-3-1",
+        "strk": "OTL1",
+        "gf": 151,
+        "ga": 155,
+        "gd": -4,
+        "pp_pct": 0.158,
+        "pk_pct": 0.882
+      },
+      {
+        "team": "Red Hawks",
+        "conference": "Eastern",
+        "division": "Central",
+        "gp": 46,
+        "points": 51,
+        "point_pct": 0.554,
+        "wins": 25,
+        "losses": 20,
+        "ot_losses": 1,
+        "home": "13-10-0",
+        "away": "12-10-1",
+        "l10": "4-6-0",
+        "strk": "W2",
+        "gf": 154,
+        "ga": 154,
+        "gd": 0,
+        "pp_pct": 0.103,
+        "pk_pct": 0.837
+      },
+      {
+        "team": "Iron Rangers",
+        "conference": "Eastern",
+        "division": "Central",
+        "gp": 46,
+        "points": 50,
+        "point_pct": 0.543,
+        "wins": 23,
+        "losses": 19,
+        "ot_losses": 4,
+        "home": "9-10-4",
+        "away": "14-9-0",
+        "l10": "6-3-1",
+        "strk": "W1",
+        "gf": 165,
+        "ga": 166,
+        "gd": -1,
+        "pp_pct": 0.13,
+        "pk_pct": 0.849
+      },
+      {
+        "team": "Steel River",
+        "conference": "Eastern",
+        "division": "Central",
+        "gp": 46,
+        "points": 50,
+        "point_pct": 0.543,
+        "wins": 23,
+        "losses": 19,
+        "ot_losses": 4,
+        "home": "14-9-0",
+        "away": "9-10-4",
+        "l10": "5-4-1",
+        "strk": "L2",
+        "gf": 139,
+        "ga": 143,
+        "gd": -4,
+        "pp_pct": 0.141,
+        "pk_pct": 0.92
+      },
+      {
+        "team": "Emerald Orcas",
+        "conference": "Western",
+        "division": "West",
+        "gp": 46,
+        "points": 49,
+        "point_pct": 0.533,
+        "wins": 22,
+        "losses": 19,
+        "ot_losses": 5,
+        "home": "12-9-2",
+        "away": "10-10-3",
+        "l10": "7-1-2",
+        "strk": "OTL1",
+        "gf": 114,
+        "ga": 125,
+        "gd": -11,
+        "pp_pct": 0.143,
+        "pk_pct": 0.798
+      },
+      {
+        "team": "Harbor Kings",
+        "conference": "Eastern",
+        "division": "East",
+        "gp": 46,
+        "points": 48,
+        "point_pct": 0.522,
+        "wins": 22,
+        "losses": 20,
+        "ot_losses": 4,
+        "home": "12-10-1",
+        "away": "10-10-3",
+        "l10": "5-5-0",
+        "strk": "L1",
+        "gf": 122,
+        "ga": 130,
+        "gd": -8,
+        "pp_pct": 0.108,
+        "pk_pct": 0.887
+      },
+      {
+        "team": "Canyon Coyotes",
+        "conference": "Western",
+        "division": "West",
+        "gp": 46,
+        "points": 48,
+        "point_pct": 0.522,
+        "wins": 21,
+        "losses": 19,
+        "ot_losses": 6,
+        "home": "11-9-3",
+        "away": "10-10-3",
+        "l10": "5-4-1",
+        "strk": "W1",
+        "gf": 158,
+        "ga": 167,
+        "gd": -9,
+        "pp_pct": 0.127,
+        "pk_pct": 0.864
+      },
+      {
+        "team": "Prairie Storm",
+        "conference": "Eastern",
+        "division": "Central",
+        "gp": 46,
+        "points": 47,
+        "point_pct": 0.511,
+        "wins": 22,
+        "losses": 21,
+        "ot_losses": 3,
+        "home": "13-8-2",
+        "away": "9-13-1",
+        "l10": "4-6-0",
+        "strk": "L2",
+        "gf": 127,
+        "ga": 126,
+        "gd": 1,
+        "pp_pct": 0.152,
+        "pk_pct": 0.854
+      },
+      {
+        "team": "Desert Fire",
+        "conference": "Western",
+        "division": "West",
+        "gp": 46,
+        "points": 46,
+        "point_pct": 0.5,
+        "wins": 23,
+        "losses": 23,
+        "ot_losses": 0,
+        "home": "16-7-0",
+        "away": "7-16-0",
+        "l10": "5-5-0",
+        "strk": "W1",
+        "gf": 145,
+        "ga": 152,
+        "gd": -7,
+        "pp_pct": 0.161,
+        "pk_pct": 0.86
+      },
+      {
+        "team": "Golden Peaks",
+        "conference": "Western",
+        "division": "West",
+        "gp": 46,
+        "points": 46,
+        "point_pct": 0.5,
+        "wins": 22,
+        "losses": 22,
+        "ot_losses": 2,
+        "home": "11-11-1",
+        "away": "11-11-1",
+        "l10": "4-5-1",
+        "strk": "L2",
+        "gf": 149,
+        "ga": 162,
+        "gd": -13,
+        "pp_pct": 0.154,
+        "pk_pct": 0.855
+      },
+      {
+        "team": "Bay Comets",
+        "conference": "Eastern",
+        "division": "East",
+        "gp": 46,
+        "points": 44,
+        "point_pct": 0.478,
+        "wins": 21,
+        "losses": 23,
+        "ot_losses": 2,
+        "home": "11-10-2",
+        "away": "10-13-0",
+        "l10": "5-4-1",
+        "strk": "L1",
+        "gf": 165,
+        "ga": 168,
+        "gd": -3,
+        "pp_pct": 0.13,
+        "pk_pct": 0.878
+      },
+      {
+        "team": "Capital Foxes",
+        "conference": "Eastern",
+        "division": "East",
+        "gp": 46,
+        "points": 41,
+        "point_pct": 0.446,
+        "wins": 19,
+        "losses": 24,
+        "ot_losses": 3,
+        "home": "10-11-2",
+        "away": "9-13-1",
+        "l10": "2-8-0",
+        "strk": "L4",
+        "gf": 153,
+        "ga": 175,
+        "gd": -22,
+        "pp_pct": 0.113,
+        "pk_pct": 0.822
+      },
+      {
+        "team": "Liberty Blades",
+        "conference": "Eastern",
+        "division": "East",
+        "gp": 46,
+        "points": 41,
+        "point_pct": 0.446,
+        "wins": 18,
+        "losses": 23,
+        "ot_losses": 5,
+        "home": "9-11-3",
+        "away": "9-12-2",
+        "l10": "3-6-1",
+        "strk": "L3",
+        "gf": 132,
+        "ga": 160,
+        "gd": -28,
+        "pp_pct": 0.128,
+        "pk_pct": 0.859
+      },
+      {
+        "team": "Summit Eagles",
+        "conference": "Western",
+        "division": "West",
+        "gp": 46,
+        "points": 36,
+        "point_pct": 0.391,
+        "wins": 16,
+        "losses": 26,
+        "ot_losses": 4,
+        "home": "7-14-2",
+        "away": "9-12-2",
+        "l10": "5-4-1",
+        "strk": "L1",
+        "gf": 113,
+        "ga": 151,
+        "gd": -38,
+        "pp_pct": 0.113,
+        "pk_pct": 0.878
+      }
+    ],
+    "coaches": [
+      {
+        "team": "Atlantic Wolves",
+        "coach": "Rick Gonchar",
+        "coach_rating": 3.9,
+        "coach_style": "balanced",
+        "wins": 28,
+        "losses": 15,
+        "ot_losses": 3,
+        "points": 59,
+        "point_pct": 0.641,
+        "champion": false
+      },
+      {
+        "team": "Metro Sparks",
+        "coach": "Derek Maurice",
+        "coach_rating": 4.58,
+        "coach_style": "aggressive",
+        "wins": 26,
+        "losses": 14,
+        "ot_losses": 6,
+        "points": 58,
+        "point_pct": 0.63,
+        "champion": false
+      },
+      {
+        "team": "Granite Bears",
+        "coach": "Marco Martin",
+        "coach_rating": 3.57,
+        "coach_style": "defensive",
+        "wins": 24,
+        "losses": 14,
+        "ot_losses": 8,
+        "points": 56,
+        "point_pct": 0.609,
+        "champion": false
+      },
+      {
+        "team": "Icebreakers",
+        "coach": "Jon Lemaire",
+        "coach_rating": 3.81,
+        "coach_style": "balanced",
+        "wins": 25,
+        "losses": 16,
+        "ot_losses": 5,
+        "points": 55,
+        "point_pct": 0.598,
+        "champion": false
+      },
+      {
+        "team": "Silver Pines",
+        "coach": "John Muller",
+        "coach_rating": 4.78,
+        "coach_style": "aggressive",
+        "wins": 25,
+        "losses": 17,
+        "ot_losses": 4,
+        "points": 54,
+        "point_pct": 0.587,
+        "champion": false
+      },
+      {
+        "team": "Aurora",
+        "coach": "Guy Hynes",
+        "coach_rating": 4.76,
+        "coach_style": "aggressive",
+        "wins": 26,
+        "losses": 19,
+        "ot_losses": 1,
+        "points": 53,
+        "point_pct": 0.576,
+        "champion": true
+      },
+      {
+        "team": "Pacific Tide",
+        "coach": "Barry Quinn",
+        "coach_rating": 3.04,
+        "coach_style": "defensive",
+        "wins": 24,
+        "losses": 17,
+        "ot_losses": 5,
+        "points": 53,
+        "point_pct": 0.576,
+        "champion": false
+      },
+      {
+        "team": "Lake Vipers",
+        "coach": "Chris Laviolette",
+        "coach_rating": 3.7,
+        "coach_style": "defensive",
+        "wins": 24,
+        "losses": 18,
+        "ot_losses": 4,
+        "points": 52,
+        "point_pct": 0.565,
+        "champion": false
+      },
+      {
+        "team": "Glaciers",
+        "coach": "Andre Knoblauch",
+        "coach_rating": 3.86,
+        "coach_style": "aggressive",
+        "wins": 25,
+        "losses": 19,
+        "ot_losses": 2,
+        "points": 52,
+        "point_pct": 0.565,
+        "champion": false
+      },
+      {
+        "team": "Timberwolves",
+        "coach": "Kevin Sutter",
+        "coach_rating": 4.49,
+        "coach_style": "aggressive",
+        "wins": 25,
+        "losses": 19,
+        "ot_losses": 2,
+        "points": 52,
+        "point_pct": 0.565,
+        "champion": false
+      },
+      {
+        "team": "Polar Caps",
+        "coach": "John Evason",
+        "coach_rating": 4.25,
+        "coach_style": "aggressive",
+        "wins": 23,
+        "losses": 17,
+        "ot_losses": 6,
+        "points": 52,
+        "point_pct": 0.565,
+        "champion": false
+      },
+      {
+        "team": "Red Hawks",
+        "coach": "Chris Berube",
+        "coach_rating": 4.48,
+        "coach_style": "aggressive",
+        "wins": 25,
+        "losses": 20,
+        "ot_losses": 1,
+        "points": 51,
+        "point_pct": 0.554,
+        "champion": false
+      },
+      {
+        "team": "Iron Rangers",
+        "coach": "Ken Hartley",
+        "coach_rating": 4.04,
+        "coach_style": "aggressive",
+        "wins": 23,
+        "losses": 19,
+        "ot_losses": 4,
+        "points": 50,
+        "point_pct": 0.543,
+        "champion": false
+      },
+      {
+        "team": "Steel River",
+        "coach": "Alex Cassidy",
+        "coach_rating": 2.88,
+        "coach_style": "balanced",
+        "wins": 23,
+        "losses": 19,
+        "ot_losses": 4,
+        "points": 50,
+        "point_pct": 0.543,
+        "champion": false
+      },
+      {
+        "team": "Emerald Orcas",
+        "coach": "Dean Gonchar",
+        "coach_rating": 3.96,
+        "coach_style": "defensive",
+        "wins": 22,
+        "losses": 19,
+        "ot_losses": 5,
+        "points": 49,
+        "point_pct": 0.533,
+        "champion": false
+      },
+      {
+        "team": "Harbor Kings",
+        "coach": "Martin Maurice",
+        "coach_rating": 3.22,
+        "coach_style": "defensive",
+        "wins": 22,
+        "losses": 20,
+        "ot_losses": 4,
+        "points": 48,
+        "point_pct": 0.522,
+        "champion": false
+      },
+      {
+        "team": "Canyon Coyotes",
+        "coach": "Pat Laviolette",
+        "coach_rating": 4.08,
+        "coach_style": "aggressive",
+        "wins": 21,
+        "losses": 19,
+        "ot_losses": 6,
+        "points": 48,
+        "point_pct": 0.522,
+        "champion": false
+      },
+      {
+        "team": "Prairie Storm",
+        "coach": "John Berube",
+        "coach_rating": 3.89,
+        "coach_style": "defensive",
+        "wins": 22,
+        "losses": 21,
+        "ot_losses": 3,
+        "points": 47,
+        "point_pct": 0.511,
+        "champion": false
+      },
+      {
+        "team": "Desert Fire",
+        "coach": "Andre Brindamour",
+        "coach_rating": 4.26,
+        "coach_style": "aggressive",
+        "wins": 23,
+        "losses": 23,
+        "ot_losses": 0,
+        "points": 46,
+        "point_pct": 0.5,
+        "champion": false
+      },
+      {
+        "team": "Golden Peaks",
+        "coach": "Lindy Maurice",
+        "coach_rating": 3.26,
+        "coach_style": "balanced",
+        "wins": 22,
+        "losses": 22,
+        "ot_losses": 2,
+        "points": 46,
+        "point_pct": 0.5,
+        "champion": false
+      },
+      {
+        "team": "Bay Comets",
+        "coach": "Scott Knoblauch",
+        "coach_rating": 4.23,
+        "coach_style": "aggressive",
+        "wins": 21,
+        "losses": 23,
+        "ot_losses": 2,
+        "points": 44,
+        "point_pct": 0.478,
+        "champion": false
+      },
+      {
+        "team": "Capital Foxes",
+        "coach": "Mike Ruff",
+        "coach_rating": 3.42,
+        "coach_style": "aggressive",
+        "wins": 19,
+        "losses": 24,
+        "ot_losses": 3,
+        "points": 41,
+        "point_pct": 0.446,
+        "champion": false
+      },
+      {
+        "team": "Liberty Blades",
+        "coach": "Jacques Laviolette",
+        "coach_rating": 2.99,
+        "coach_style": "aggressive",
+        "wins": 18,
+        "losses": 23,
+        "ot_losses": 5,
+        "points": 41,
+        "point_pct": 0.446,
+        "champion": false
+      },
+      {
+        "team": "Summit Eagles",
+        "coach": "Dean Sullivan",
+        "coach_rating": 3.53,
+        "coach_style": "defensive",
+        "wins": 16,
+        "losses": 26,
+        "ot_losses": 4,
+        "points": 36,
+        "point_pct": 0.391,
+        "champion": false
+      }
+    ],
+    "leadership": [
+      {
+        "team": "Atlantic Wolves",
+        "captain": "Max Dreyer",
+        "assistants": [
+          "Harlan Winslow",
+          "Magnus Boucher"
+        ]
+      },
+      {
+        "team": "Metro Sparks",
+        "captain": "Abel Harris",
+        "assistants": [
+          "Brendan Novak",
+          "Anson Hoffman"
+        ]
+      },
+      {
+        "team": "Granite Bears",
+        "captain": "Miles Orlov",
+        "assistants": [
+          "Roman Harper",
+          "Keaton Osborne"
+        ]
+      },
+      {
+        "team": "Icebreakers",
+        "captain": "Tobin Farrell",
+        "assistants": [
+          "Evan Boone",
+          "Oswin Holm"
+        ]
+      },
+      {
+        "team": "Silver Pines",
+        "captain": "Elias Romanov",
+        "assistants": [
+          "Max Amundsen",
+          "Albin Lutz"
+        ]
+      },
+      {
+        "team": "Aurora",
+        "captain": "Magnus Romanov",
+        "assistants": [
+          "Remy Mayer",
+          "Connor Kovalenko"
+        ]
+      },
+      {
+        "team": "Pacific Tide",
+        "captain": "Basil Malloy",
+        "assistants": [
+          "Loren Payne",
+          "Greer York"
+        ]
+      },
+      {
+        "team": "Lake Vipers",
+        "captain": "Hudson Hartikainen",
+        "assistants": [
+          "Mads McLean",
+          "Cedric Bergman"
+        ]
+      },
+      {
+        "team": "Glaciers",
+        "captain": "Tobin Bennett",
+        "assistants": [
+          "Bo Blackwood",
+          "Shane Anderson"
+        ]
+      },
+      {
+        "team": "Timberwolves",
+        "captain": "Isak Kingsley",
+        "assistants": [
+          "Brady Holt",
+          "Koda Larkin"
+        ]
+      },
+      {
+        "team": "Polar Caps",
+        "captain": "Jonas Ellis",
+        "assistants": [
+          "Valen Wright",
+          "Milo Kingsley"
+        ]
+      },
+      {
+        "team": "Red Hawks",
+        "captain": "Koda Cooper",
+        "assistants": [
+          "Joel Payne",
+          "Tobin Forster"
+        ]
+      },
+      {
+        "team": "Iron Rangers",
+        "captain": "Caleb Aho",
+        "assistants": [
+          "Keaton Fedorov",
+          "Mark Grier"
+        ]
+      },
+      {
+        "team": "Steel River",
+        "captain": "Keaton Ritchie",
+        "assistants": [
+          "Lucian Sawyer",
+          "Koda Grant"
+        ]
+      },
+      {
+        "team": "Emerald Orcas",
+        "captain": "Rune Callahan",
+        "assistants": [
+          "Gael Farrell",
+          "Zach Avery"
+        ]
+      },
+      {
+        "team": "Harbor Kings",
+        "captain": "Gael Kane",
+        "assistants": [
+          "Jani Carver",
+          "Yanis Chandler"
+        ]
+      },
+      {
+        "team": "Canyon Coyotes",
+        "captain": "Hayden Grier",
+        "assistants": [
+          "Tommy West",
+          "Paavo Hughes"
+        ]
+      },
+      {
+        "team": "Prairie Storm",
+        "captain": "Marc McNabb",
+        "assistants": [
+          "Corbin Monroe",
+          "Josh Zimmer"
+        ]
+      },
+      {
+        "team": "Desert Fire",
+        "captain": "Loren Boone",
+        "assistants": [
+          "Josh Ainsley",
+          "Jesse Lennon"
+        ]
+      },
+      {
+        "team": "Golden Peaks",
+        "captain": "Clyde Sterling",
+        "assistants": [
+          "Ira Quinlan",
+          "Darcy Horvath"
+        ]
+      },
+      {
+        "team": "Bay Comets",
+        "captain": "Eric Ritchie",
+        "assistants": [
+          "Tristan Berg",
+          "Louie Isaksson"
+        ]
+      },
+      {
+        "team": "Capital Foxes",
+        "captain": "Micah Nadeau",
+        "assistants": [
+          "Mark Clarke",
+          "Hector Blake"
+        ]
+      },
+      {
+        "team": "Liberty Blades",
+        "captain": "Jaxon Bowen",
+        "assistants": [
+          "Cael Lutz",
+          "Chase Caldwell"
+        ]
+      },
+      {
+        "team": "Summit Eagles",
+        "captain": "Teemu Barclay",
+        "assistants": [
+          "Tommy Hartikainen",
+          "Gareth Zaitsev"
+        ]
+      }
+    ],
+    "top_scorers": [
+      {
+        "team": "Silver Pines",
+        "player": "Elias Romanov",
+        "age": 32,
+        "gp": 46,
+        "g": 30,
+        "a": 14,
+        "p": 44
+      },
+      {
+        "team": "Polar Caps",
+        "player": "Hudson Gallagher",
+        "age": 32,
+        "gp": 40,
+        "g": 28,
+        "a": 10,
+        "p": 38
+      },
+      {
+        "team": "Bay Comets",
+        "player": "Tristan Berg",
+        "age": 28,
+        "gp": 46,
+        "g": 23,
+        "a": 14,
+        "p": 37
+      },
+      {
+        "team": "Pacific Tide",
+        "player": "Basil Malloy",
+        "age": 32,
+        "gp": 46,
+        "g": 21,
+        "a": 14,
+        "p": 35
+      },
+      {
+        "team": "Silver Pines",
+        "player": "Colton Lachance",
+        "age": 35,
+        "gp": 42,
+        "g": 18,
+        "a": 16,
+        "p": 34
+      },
+      {
+        "team": "Steel River",
+        "player": "Caden Rafferty",
+        "age": 23,
+        "gp": 38,
+        "g": 17,
+        "a": 17,
+        "p": 34
+      },
+      {
+        "team": "Capital Foxes",
+        "player": "Mark Clarke",
+        "age": 26,
+        "gp": 46,
+        "g": 26,
+        "a": 7,
+        "p": 33
+      },
+      {
+        "team": "Canyon Coyotes",
+        "player": "Frank Kovalenko",
+        "age": 24,
+        "gp": 42,
+        "g": 23,
+        "a": 10,
+        "p": 33
+      },
+      {
+        "team": "Timberwolves",
+        "player": "Isak Kingsley",
+        "age": 35,
+        "gp": 46,
+        "g": 22,
+        "a": 11,
+        "p": 33
+      },
+      {
+        "team": "Glaciers",
+        "player": "Denis Leclerc",
+        "age": 30,
+        "gp": 39,
+        "g": 22,
+        "a": 11,
+        "p": 33
+      },
+      {
+        "team": "Desert Fire",
+        "player": "Loren Boone",
+        "age": 33,
+        "gp": 43,
+        "g": 20,
+        "a": 13,
+        "p": 33
+      },
+      {
+        "team": "Red Hawks",
+        "player": "Rune McLean",
+        "age": 24,
+        "gp": 46,
+        "g": 19,
+        "a": 14,
+        "p": 33
+      },
+      {
+        "team": "Canyon Coyotes",
+        "player": "Tristan Radek",
+        "age": 20,
+        "gp": 46,
+        "g": 16,
+        "a": 17,
+        "p": 33
+      },
+      {
+        "team": "Icebreakers",
+        "player": "Archer Robertson",
+        "age": 23,
+        "gp": 46,
+        "g": 21,
+        "a": 11,
+        "p": 32
+      },
+      {
+        "team": "Capital Foxes",
+        "player": "Hector Blake",
+        "age": 24,
+        "gp": 46,
+        "g": 21,
+        "a": 11,
+        "p": 32
+      },
+      {
+        "team": "Silver Pines",
+        "player": "Paavo Graham",
+        "age": 31,
+        "gp": 45,
+        "g": 20,
+        "a": 12,
+        "p": 32
+      },
+      {
+        "team": "Silver Pines",
+        "player": "Rune Locke",
+        "age": 20,
+        "gp": 46,
+        "g": 18,
+        "a": 14,
+        "p": 32
+      },
+      {
+        "team": "Canyon Coyotes",
+        "player": "Harlan York",
+        "age": 27,
+        "gp": 44,
+        "g": 15,
+        "a": 17,
+        "p": 32
+      },
+      {
+        "team": "Atlantic Wolves",
+        "player": "Harlan Winslow",
+        "age": 28,
+        "gp": 46,
+        "g": 21,
+        "a": 10,
+        "p": 31
+      },
+      {
+        "team": "Lake Vipers",
+        "player": "Hudson Hartikainen",
+        "age": 31,
+        "gp": 46,
+        "g": 21,
+        "a": 10,
+        "p": 31
+      }
+    ],
+    "top_goalies": [
+      {
+        "team": "Atlantic Wolves",
+        "goalie": "Tommy Pearce",
+        "age": 23,
+        "gp": 46,
+        "w": 28,
+        "l": 15,
+        "otl": 3,
+        "so": 1,
+        "sv_pct": 0.897,
+        "gaa": 3.22
+      },
+      {
+        "team": "Metro Sparks",
+        "goalie": "Kevin Edwards",
+        "age": 25,
+        "gp": 36,
+        "w": 20,
+        "l": 12,
+        "otl": 4,
+        "so": 1,
+        "sv_pct": 0.899,
+        "gaa": 3.11
+      },
+      {
+        "team": "Canyon Coyotes",
+        "goalie": "Jonas Clarke",
+        "age": 21,
+        "gp": 42,
+        "w": 20,
+        "l": 16,
+        "otl": 6,
+        "so": 1,
+        "sv_pct": 0.887,
+        "gaa": 3.67
+      },
+      {
+        "team": "Granite Bears",
+        "goalie": "Viktor Brandt",
+        "age": 20,
+        "gp": 35,
+        "w": 18,
+        "l": 11,
+        "otl": 6,
+        "so": 2,
+        "sv_pct": 0.909,
+        "gaa": 2.89
+      },
+      {
+        "team": "Pacific Tide",
+        "goalie": "Ryan Uronen",
+        "age": 23,
+        "gp": 32,
+        "w": 18,
+        "l": 11,
+        "otl": 3,
+        "so": 1,
+        "sv_pct": 0.901,
+        "gaa": 3.0
+      },
+      {
+        "team": "Silver Pines",
+        "goalie": "Umar Daniels",
+        "age": 25,
+        "gp": 31,
+        "w": 18,
+        "l": 11,
+        "otl": 2,
+        "so": 1,
+        "sv_pct": 0.89,
+        "gaa": 3.52
+      },
+      {
+        "team": "Prairie Storm",
+        "goalie": "Ilya Gentry",
+        "age": 24,
+        "gp": 31,
+        "w": 17,
+        "l": 12,
+        "otl": 2,
+        "so": 6,
+        "sv_pct": 0.919,
+        "gaa": 2.45
+      },
+      {
+        "team": "Emerald Orcas",
+        "goalie": "Elias Gustafsson",
+        "age": 21,
+        "gp": 34,
+        "w": 17,
+        "l": 13,
+        "otl": 4,
+        "so": 3,
+        "sv_pct": 0.914,
+        "gaa": 2.65
+      },
+      {
+        "team": "Red Hawks",
+        "goalie": "Dorian Halloran",
+        "age": 25,
+        "gp": 31,
+        "w": 17,
+        "l": 13,
+        "otl": 1,
+        "so": 2,
+        "sv_pct": 0.901,
+        "gaa": 3.13
+      },
+      {
+        "team": "Glaciers",
+        "goalie": "Rene Monroe",
+        "age": 22,
+        "gp": 30,
+        "w": 17,
+        "l": 11,
+        "otl": 2,
+        "so": 0,
+        "sv_pct": 0.897,
+        "gaa": 3.2
+      },
+      {
+        "team": "Steel River",
+        "goalie": "Kai Lutz",
+        "age": 19,
+        "gp": 30,
+        "w": 16,
+        "l": 12,
+        "otl": 2,
+        "so": 3,
+        "sv_pct": 0.905,
+        "gaa": 2.93
+      },
+      {
+        "team": "Lake Vipers",
+        "goalie": "Pavel Strom",
+        "age": 22,
+        "gp": 30,
+        "w": 15,
+        "l": 12,
+        "otl": 3,
+        "so": 4,
+        "sv_pct": 0.918,
+        "gaa": 2.5
+      }
+    ],
+    "playoffs": {
+      "cup_name": "Founders Cup",
+      "champion": "Aurora",
+      "cup_champion": "Aurora",
+      "mvp": {
+        "name": "Griffin Boucher",
+        "team": "Aurora",
+        "position": "RW",
+        "summary": "23 pts (19G-4A) in 17 GP"
+      },
+      "seeds": [
+        {
+          "conference": "Eastern",
+          "division": "Central",
+          "seed": "D1",
+          "team": "Granite Bears",
+          "points": 56
+        },
+        {
+          "conference": "Eastern",
+          "division": "Central",
+          "seed": "D2",
+          "team": "Lake Vipers",
+          "points": 52
+        },
+        {
+          "conference": "Eastern",
+          "division": "Central",
+          "seed": "D3",
+          "team": "Red Hawks",
+          "points": 51
+        },
+        {
+          "conference": "Eastern",
+          "division": "East",
+          "seed": "D1",
+          "team": "Atlantic Wolves",
+          "points": 59
+        },
+        {
+          "conference": "Eastern",
+          "division": "East",
+          "seed": "D2",
+          "team": "Metro Sparks",
+          "points": 58
+        },
+        {
+          "conference": "Eastern",
+          "division": "East",
+          "seed": "D3",
+          "team": "Harbor Kings",
+          "points": 48
+        },
+        {
+          "conference": "Eastern",
+          "division": "Wildcard",
+          "seed": "WC1",
+          "team": "Iron Rangers",
+          "points": 50
+        },
+        {
+          "conference": "Eastern",
+          "division": "Wildcard",
+          "seed": "WC2",
+          "team": "Steel River",
+          "points": 50
+        },
+        {
+          "conference": "Western",
+          "division": "North",
+          "seed": "D1",
+          "team": "Icebreakers",
+          "points": 55
+        },
+        {
+          "conference": "Western",
+          "division": "North",
+          "seed": "D2",
+          "team": "Silver Pines",
+          "points": 54
+        },
+        {
+          "conference": "Western",
+          "division": "North",
+          "seed": "D3",
+          "team": "Aurora",
+          "points": 53
+        },
+        {
+          "conference": "Western",
+          "division": "West",
+          "seed": "D1",
+          "team": "Pacific Tide",
+          "points": 53
+        },
+        {
+          "conference": "Western",
+          "division": "West",
+          "seed": "D2",
+          "team": "Emerald Orcas",
+          "points": 49
+        },
+        {
+          "conference": "Western",
+          "division": "West",
+          "seed": "D3",
+          "team": "Canyon Coyotes",
+          "points": 48
+        },
+        {
+          "conference": "Western",
+          "division": "Wildcard",
+          "seed": "WC1",
+          "team": "Glaciers",
+          "points": 52
+        },
+        {
+          "conference": "Western",
+          "division": "Wildcard",
+          "seed": "WC2",
+          "team": "Timberwolves",
+          "points": 52
+        }
+      ],
+      "rounds": [
+        {
+          "name": "Eastern First Round",
+          "series": [
+            {
+              "round": "Central Division First Round",
+              "higher_seed": "Granite Bears",
+              "lower_seed": "Iron Rangers",
+              "winner": "Iron Rangers",
+              "loser": "Granite Bears",
+              "winner_wins": 4,
+              "loser_wins": 0,
+              "games": [
+                {
+                  "game": 1,
+                  "home": "Granite Bears",
+                  "away": "Iron Rangers",
+                  "home_goals": 1,
+                  "away_goals": 5,
+                  "overtime": false,
+                  "home_goalie": "Viktor Brandt",
+                  "away_goalie": "Ilya Bissett",
+                  "attendance": 12149,
+                  "arena_capacity": 12149,
+                  "winner": "Iron Rangers"
+                },
+                {
+                  "game": 2,
+                  "home": "Granite Bears",
+                  "away": "Iron Rangers",
+                  "home_goals": 3,
+                  "away_goals": 4,
+                  "overtime": true,
+                  "home_goalie": "Viktor Brandt",
+                  "away_goalie": "Ilya Bissett",
+                  "attendance": 12149,
+                  "arena_capacity": 12149,
+                  "winner": "Iron Rangers"
+                },
+                {
+                  "game": 3,
+                  "home": "Iron Rangers",
+                  "away": "Granite Bears",
+                  "home_goals": 4,
+                  "away_goals": 3,
+                  "overtime": true,
+                  "home_goalie": "Joel Hugheson",
+                  "away_goalie": "Viktor Brandt",
+                  "attendance": 16540,
+                  "arena_capacity": 16540,
+                  "winner": "Iron Rangers"
+                },
+                {
+                  "game": 4,
+                  "home": "Iron Rangers",
+                  "away": "Granite Bears",
+                  "home_goals": 3,
+                  "away_goals": 2,
+                  "overtime": false,
+                  "home_goalie": "Joel Hugheson",
+                  "away_goalie": "Jonas Lindholm",
+                  "attendance": 16540,
+                  "arena_capacity": 16540,
+                  "winner": "Iron Rangers"
+                }
+              ]
+            },
+            {
+              "round": "Central Division First Round",
+              "higher_seed": "Lake Vipers",
+              "lower_seed": "Red Hawks",
+              "winner": "Red Hawks",
+              "loser": "Lake Vipers",
+              "winner_wins": 4,
+              "loser_wins": 2,
+              "games": [
+                {
+                  "game": 1,
+                  "home": "Lake Vipers",
+                  "away": "Red Hawks",
+                  "home_goals": 2,
+                  "away_goals": 4,
+                  "overtime": false,
+                  "home_goalie": "Pavel Strom",
+                  "away_goalie": "Dorian Halloran",
+                  "attendance": 17383,
+                  "arena_capacity": 17445,
+                  "winner": "Red Hawks"
+                },
+                {
+                  "game": 2,
+                  "home": "Lake Vipers",
+                  "away": "Red Hawks",
+                  "home_goals": 7,
+                  "away_goals": 1,
+                  "overtime": false,
+                  "home_goalie": "Wade Clements",
+                  "away_goalie": "Dorian Halloran",
+                  "attendance": 17445,
+                  "arena_capacity": 17445,
+                  "winner": "Lake Vipers"
+                },
+                {
+                  "game": 3,
+                  "home": "Red Hawks",
+                  "away": "Lake Vipers",
+                  "home_goals": 7,
+                  "away_goals": 2,
+                  "overtime": false,
+                  "home_goalie": "Zach Stone",
+                  "away_goalie": "Pavel Strom",
+                  "attendance": 11230,
+                  "arena_capacity": 11230,
+                  "winner": "Red Hawks"
+                },
+                {
+                  "game": 4,
+                  "home": "Red Hawks",
+                  "away": "Lake Vipers",
+                  "home_goals": 4,
+                  "away_goals": 6,
+                  "overtime": false,
+                  "home_goalie": "Zach Stone",
+                  "away_goalie": "Pavel Strom",
+                  "attendance": 11230,
+                  "arena_capacity": 11230,
+                  "winner": "Lake Vipers"
+                },
+                {
+                  "game": 5,
+                  "home": "Lake Vipers",
+                  "away": "Red Hawks",
+                  "home_goals": 2,
+                  "away_goals": 4,
+                  "overtime": false,
+                  "home_goalie": "Wade Clements",
+                  "away_goalie": "Dorian Halloran",
+                  "attendance": 17445,
+                  "arena_capacity": 17445,
+                  "winner": "Red Hawks"
+                },
+                {
+                  "game": 6,
+                  "home": "Red Hawks",
+                  "away": "Lake Vipers",
+                  "home_goals": 4,
+                  "away_goals": 1,
+                  "overtime": false,
+                  "home_goalie": "Dorian Halloran",
+                  "away_goalie": "Pavel Strom",
+                  "attendance": 11230,
+                  "arena_capacity": 11230,
+                  "winner": "Red Hawks"
+                }
+              ]
+            },
+            {
+              "round": "East Division First Round",
+              "higher_seed": "Atlantic Wolves",
+              "lower_seed": "Steel River",
+              "winner": "Steel River",
+              "loser": "Atlantic Wolves",
+              "winner_wins": 4,
+              "loser_wins": 3,
+              "games": [
+                {
+                  "game": 1,
+                  "home": "Atlantic Wolves",
+                  "away": "Steel River",
+                  "home_goals": 1,
+                  "away_goals": 3,
+                  "overtime": false,
+                  "home_goalie": "Tommy Pearce",
+                  "away_goalie": "Reid Callahan",
+                  "attendance": 12466,
+                  "arena_capacity": 12466,
+                  "winner": "Steel River"
+                },
+                {
+                  "game": 2,
+                  "home": "Atlantic Wolves",
+                  "away": "Steel River",
+                  "home_goals": 3,
+                  "away_goals": 6,
+                  "overtime": false,
+                  "home_goalie": "Tommy Pearce",
+                  "away_goalie": "Kai Lutz",
+                  "attendance": 12466,
+                  "arena_capacity": 12466,
+                  "winner": "Steel River"
+                },
+                {
+                  "game": 3,
+                  "home": "Steel River",
+                  "away": "Atlantic Wolves",
+                  "home_goals": 7,
+                  "away_goals": 4,
+                  "overtime": false,
+                  "home_goalie": "Kai Lutz",
+                  "away_goalie": "Tommy Pearce",
+                  "attendance": 18202,
+                  "arena_capacity": 18616,
+                  "winner": "Steel River"
+                },
+                {
+                  "game": 4,
+                  "home": "Steel River",
+                  "away": "Atlantic Wolves",
+                  "home_goals": 3,
+                  "away_goals": 9,
+                  "overtime": false,
+                  "home_goalie": "Kai Lutz",
+                  "away_goalie": "Tommy Pearce",
+                  "attendance": 18616,
+                  "arena_capacity": 18616,
+                  "winner": "Atlantic Wolves"
+                },
+                {
+                  "game": 5,
+                  "home": "Atlantic Wolves",
+                  "away": "Steel River",
+                  "home_goals": 7,
+                  "away_goals": 1,
+                  "overtime": false,
+                  "home_goalie": "Tommy Pearce",
+                  "away_goalie": "Kai Lutz",
+                  "attendance": 12466,
+                  "arena_capacity": 12466,
+                  "winner": "Atlantic Wolves"
+                },
+                {
+                  "game": 6,
+                  "home": "Steel River",
+                  "away": "Atlantic Wolves",
+                  "home_goals": 4,
+                  "away_goals": 5,
+                  "overtime": false,
+                  "home_goalie": "Kai Lutz",
+                  "away_goalie": "Tommy Pearce",
+                  "attendance": 18616,
+                  "arena_capacity": 18616,
+                  "winner": "Atlantic Wolves"
+                },
+                {
+                  "game": 7,
+                  "home": "Atlantic Wolves",
+                  "away": "Steel River",
+                  "home_goals": 4,
+                  "away_goals": 5,
+                  "overtime": false,
+                  "home_goalie": "Tommy Pearce",
+                  "away_goalie": "Kai Lutz",
+                  "attendance": 12466,
+                  "arena_capacity": 12466,
+                  "winner": "Steel River"
+                }
+              ]
+            },
+            {
+              "round": "East Division First Round",
+              "higher_seed": "Metro Sparks",
+              "lower_seed": "Harbor Kings",
+              "winner": "Harbor Kings",
+              "loser": "Metro Sparks",
+              "winner_wins": 4,
+              "loser_wins": 1,
+              "games": [
+                {
+                  "game": 1,
+                  "home": "Metro Sparks",
+                  "away": "Harbor Kings",
+                  "home_goals": 2,
+                  "away_goals": 5,
+                  "overtime": false,
+                  "home_goalie": "Kevin Edwards",
+                  "away_goalie": "Boris Bellamy",
+                  "attendance": 18565,
+                  "arena_capacity": 18929,
+                  "winner": "Harbor Kings"
+                },
+                {
+                  "game": 2,
+                  "home": "Metro Sparks",
+                  "away": "Harbor Kings",
+                  "home_goals": 3,
+                  "away_goals": 2,
+                  "overtime": false,
+                  "home_goalie": "Kevin Edwards",
+                  "away_goalie": "Tanner Yakovlev",
+                  "attendance": 18929,
+                  "arena_capacity": 18929,
+                  "winner": "Metro Sparks"
+                },
+                {
+                  "game": 3,
+                  "home": "Harbor Kings",
+                  "away": "Metro Sparks",
+                  "home_goals": 3,
+                  "away_goals": 2,
+                  "overtime": false,
+                  "home_goalie": "Tanner Yakovlev",
+                  "away_goalie": "Kevin Edwards",
+                  "attendance": 18084,
+                  "arena_capacity": 18500,
+                  "winner": "Harbor Kings"
+                },
+                {
+                  "game": 4,
+                  "home": "Harbor Kings",
+                  "away": "Metro Sparks",
+                  "home_goals": 2,
+                  "away_goals": 1,
+                  "overtime": false,
+                  "home_goalie": "Boris Bellamy",
+                  "away_goalie": "Kevin Edwards",
+                  "attendance": 17906,
+                  "arena_capacity": 18500,
+                  "winner": "Harbor Kings"
+                },
+                {
+                  "game": 5,
+                  "home": "Metro Sparks",
+                  "away": "Harbor Kings",
+                  "home_goals": 3,
+                  "away_goals": 4,
+                  "overtime": true,
+                  "home_goalie": "Kevin Edwards",
+                  "away_goalie": "Boris Bellamy",
+                  "attendance": 18929,
+                  "arena_capacity": 18929,
+                  "winner": "Harbor Kings"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Eastern Division Finals",
+          "series": [
+            {
+              "round": "Central Division Final",
+              "higher_seed": "Red Hawks",
+              "lower_seed": "Iron Rangers",
+              "winner": "Red Hawks",
+              "loser": "Iron Rangers",
+              "winner_wins": 4,
+              "loser_wins": 3,
+              "games": [
+                {
+                  "game": 1,
+                  "home": "Red Hawks",
+                  "away": "Iron Rangers",
+                  "home_goals": 3,
+                  "away_goals": 4,
+                  "overtime": false,
+                  "home_goalie": "Dorian Halloran",
+                  "away_goalie": "Joel Hugheson",
+                  "attendance": 11230,
+                  "arena_capacity": 11230,
+                  "winner": "Iron Rangers"
+                },
+                {
+                  "game": 2,
+                  "home": "Red Hawks",
+                  "away": "Iron Rangers",
+                  "home_goals": 5,
+                  "away_goals": 4,
+                  "overtime": true,
+                  "home_goalie": "Zach Stone",
+                  "away_goalie": "Joel Hugheson",
+                  "attendance": 11230,
+                  "arena_capacity": 11230,
+                  "winner": "Red Hawks"
+                },
+                {
+                  "game": 3,
+                  "home": "Iron Rangers",
+                  "away": "Red Hawks",
+                  "home_goals": 4,
+                  "away_goals": 2,
+                  "overtime": false,
+                  "home_goalie": "Joel Hugheson",
+                  "away_goalie": "Dorian Halloran",
+                  "attendance": 16540,
+                  "arena_capacity": 16540,
+                  "winner": "Iron Rangers"
+                },
+                {
+                  "game": 4,
+                  "home": "Iron Rangers",
+                  "away": "Red Hawks",
+                  "home_goals": 5,
+                  "away_goals": 2,
+                  "overtime": false,
+                  "home_goalie": "Joel Hugheson",
+                  "away_goalie": "Zach Stone",
+                  "attendance": 15807,
+                  "arena_capacity": 16540,
+                  "winner": "Iron Rangers"
+                },
+                {
+                  "game": 5,
+                  "home": "Red Hawks",
+                  "away": "Iron Rangers",
+                  "home_goals": 5,
+                  "away_goals": 2,
+                  "overtime": false,
+                  "home_goalie": "Dorian Halloran",
+                  "away_goalie": "Sam Gilroy",
+                  "attendance": 11230,
+                  "arena_capacity": 11230,
+                  "winner": "Red Hawks"
+                },
+                {
+                  "game": 6,
+                  "home": "Iron Rangers",
+                  "away": "Red Hawks",
+                  "home_goals": 2,
+                  "away_goals": 3,
+                  "overtime": false,
+                  "home_goalie": "Joel Hugheson",
+                  "away_goalie": "Dorian Halloran",
+                  "attendance": 16540,
+                  "arena_capacity": 16540,
+                  "winner": "Red Hawks"
+                },
+                {
+                  "game": 7,
+                  "home": "Red Hawks",
+                  "away": "Iron Rangers",
+                  "home_goals": 3,
+                  "away_goals": 1,
+                  "overtime": false,
+                  "home_goalie": "Dorian Halloran",
+                  "away_goalie": "Sam Gilroy",
+                  "attendance": 11230,
+                  "arena_capacity": 11230,
+                  "winner": "Red Hawks"
+                }
+              ]
+            },
+            {
+              "round": "East Division Final",
+              "higher_seed": "Steel River",
+              "lower_seed": "Harbor Kings",
+              "winner": "Harbor Kings",
+              "loser": "Steel River",
+              "winner_wins": 4,
+              "loser_wins": 1,
+              "games": [
+                {
+                  "game": 1,
+                  "home": "Steel River",
+                  "away": "Harbor Kings",
+                  "home_goals": 2,
+                  "away_goals": 3,
+                  "overtime": true,
+                  "home_goalie": "Reid Callahan",
+                  "away_goalie": "Boris Bellamy",
+                  "attendance": 17762,
+                  "arena_capacity": 18616,
+                  "winner": "Harbor Kings"
+                },
+                {
+                  "game": 2,
+                  "home": "Steel River",
+                  "away": "Harbor Kings",
+                  "home_goals": 4,
+                  "away_goals": 3,
+                  "overtime": false,
+                  "home_goalie": "Kai Lutz",
+                  "away_goalie": "Tanner Yakovlev",
+                  "attendance": 17632,
+                  "arena_capacity": 18616,
+                  "winner": "Steel River"
+                },
+                {
+                  "game": 3,
+                  "home": "Harbor Kings",
+                  "away": "Steel River",
+                  "home_goals": 3,
+                  "away_goals": 2,
+                  "overtime": true,
+                  "home_goalie": "Boris Bellamy",
+                  "away_goalie": "Kai Lutz",
+                  "attendance": 17052,
+                  "arena_capacity": 18500,
+                  "winner": "Harbor Kings"
+                },
+                {
+                  "game": 4,
+                  "home": "Harbor Kings",
+                  "away": "Steel River",
+                  "home_goals": 2,
+                  "away_goals": 0,
+                  "overtime": false,
+                  "home_goalie": "Boris Bellamy",
+                  "away_goalie": "Kai Lutz",
+                  "attendance": 17030,
+                  "arena_capacity": 18500,
+                  "winner": "Harbor Kings"
+                },
+                {
+                  "game": 5,
+                  "home": "Steel River",
+                  "away": "Harbor Kings",
+                  "home_goals": 1,
+                  "away_goals": 2,
+                  "overtime": true,
+                  "home_goalie": "Kai Lutz",
+                  "away_goalie": "Boris Bellamy",
+                  "attendance": 18323,
+                  "arena_capacity": 18616,
+                  "winner": "Harbor Kings"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Eastern Conference Final",
+          "series": [
+            {
+              "round": "Eastern Conference Final",
+              "higher_seed": "Red Hawks",
+              "lower_seed": "Harbor Kings",
+              "winner": "Harbor Kings",
+              "loser": "Red Hawks",
+              "winner_wins": 4,
+              "loser_wins": 3,
+              "games": [
+                {
+                  "game": 1,
+                  "home": "Red Hawks",
+                  "away": "Harbor Kings",
+                  "home_goals": 5,
+                  "away_goals": 2,
+                  "overtime": false,
+                  "home_goalie": "Zach Stone",
+                  "away_goalie": "Tanner Yakovlev",
+                  "attendance": 10810,
+                  "arena_capacity": 11230,
+                  "winner": "Red Hawks"
+                },
+                {
+                  "game": 2,
+                  "home": "Red Hawks",
+                  "away": "Harbor Kings",
+                  "home_goals": 1,
+                  "away_goals": 6,
+                  "overtime": false,
+                  "home_goalie": "Dorian Halloran",
+                  "away_goalie": "Boris Bellamy",
+                  "attendance": 11216,
+                  "arena_capacity": 11230,
+                  "winner": "Harbor Kings"
+                },
+                {
+                  "game": 3,
+                  "home": "Harbor Kings",
+                  "away": "Red Hawks",
+                  "home_goals": 4,
+                  "away_goals": 2,
+                  "overtime": false,
+                  "home_goalie": "Tanner Yakovlev",
+                  "away_goalie": "Zach Stone",
+                  "attendance": 17343,
+                  "arena_capacity": 18500,
+                  "winner": "Harbor Kings"
+                },
+                {
+                  "game": 4,
+                  "home": "Harbor Kings",
+                  "away": "Red Hawks",
+                  "home_goals": 2,
+                  "away_goals": 3,
+                  "overtime": true,
+                  "home_goalie": "Tanner Yakovlev",
+                  "away_goalie": "Dorian Halloran",
+                  "attendance": 17334,
+                  "arena_capacity": 18500,
+                  "winner": "Red Hawks"
+                },
+                {
+                  "game": 5,
+                  "home": "Red Hawks",
+                  "away": "Harbor Kings",
+                  "home_goals": 5,
+                  "away_goals": 4,
+                  "overtime": false,
+                  "home_goalie": "Zach Stone",
+                  "away_goalie": "Boris Bellamy",
+                  "attendance": 10860,
+                  "arena_capacity": 11230,
+                  "winner": "Red Hawks"
+                },
+                {
+                  "game": 6,
+                  "home": "Harbor Kings",
+                  "away": "Red Hawks",
+                  "home_goals": 2,
+                  "away_goals": 1,
+                  "overtime": false,
+                  "home_goalie": "Boris Bellamy",
+                  "away_goalie": "Zach Stone",
+                  "attendance": 18429,
+                  "arena_capacity": 18500,
+                  "winner": "Harbor Kings"
+                },
+                {
+                  "game": 7,
+                  "home": "Red Hawks",
+                  "away": "Harbor Kings",
+                  "home_goals": 3,
+                  "away_goals": 4,
+                  "overtime": true,
+                  "home_goalie": "Dorian Halloran",
+                  "away_goalie": "Boris Bellamy",
+                  "attendance": 11230,
+                  "arena_capacity": 11230,
+                  "winner": "Harbor Kings"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Western First Round",
+          "series": [
+            {
+              "round": "North Division First Round",
+              "higher_seed": "Icebreakers",
+              "lower_seed": "Timberwolves",
+              "winner": "Icebreakers",
+              "loser": "Timberwolves",
+              "winner_wins": 4,
+              "loser_wins": 0,
+              "games": [
+                {
+                  "game": 1,
+                  "home": "Icebreakers",
+                  "away": "Timberwolves",
+                  "home_goals": 5,
+                  "away_goals": 4,
+                  "overtime": true,
+                  "home_goalie": "Lane Lundqvist",
+                  "away_goalie": "Sami Bellamy",
+                  "attendance": 15242,
+                  "arena_capacity": 15327,
+                  "winner": "Icebreakers"
+                },
+                {
+                  "game": 2,
+                  "home": "Icebreakers",
+                  "away": "Timberwolves",
+                  "home_goals": 5,
+                  "away_goals": 4,
+                  "overtime": false,
+                  "home_goalie": "Lane Lundqvist",
+                  "away_goalie": "Sami Bellamy",
+                  "attendance": 15317,
+                  "arena_capacity": 15327,
+                  "winner": "Icebreakers"
+                },
+                {
+                  "game": 3,
+                  "home": "Timberwolves",
+                  "away": "Icebreakers",
+                  "home_goals": 1,
+                  "away_goals": 4,
+                  "overtime": false,
+                  "home_goalie": "Gareth Radek",
+                  "away_goalie": "Wade Fenwick",
+                  "attendance": 16735,
+                  "arena_capacity": 17030,
+                  "winner": "Icebreakers"
+                },
+                {
+                  "game": 4,
+                  "home": "Timberwolves",
+                  "away": "Icebreakers",
+                  "home_goals": 2,
+                  "away_goals": 3,
+                  "overtime": false,
+                  "home_goalie": "Gareth Radek",
+                  "away_goalie": "Lane Lundqvist",
+                  "attendance": 17030,
+                  "arena_capacity": 17030,
+                  "winner": "Icebreakers"
+                }
+              ]
+            },
+            {
+              "round": "North Division First Round",
+              "higher_seed": "Silver Pines",
+              "lower_seed": "Aurora",
+              "winner": "Aurora",
+              "loser": "Silver Pines",
+              "winner_wins": 4,
+              "loser_wins": 1,
+              "games": [
+                {
+                  "game": 1,
+                  "home": "Silver Pines",
+                  "away": "Aurora",
+                  "home_goals": 4,
+                  "away_goals": 5,
+                  "overtime": false,
+                  "home_goalie": "Umar Daniels",
+                  "away_goalie": "Kasper McBride",
+                  "attendance": 19012,
+                  "arena_capacity": 19649,
+                  "winner": "Aurora"
+                },
+                {
+                  "game": 2,
+                  "home": "Silver Pines",
+                  "away": "Aurora",
+                  "home_goals": 3,
+                  "away_goals": 5,
+                  "overtime": false,
+                  "home_goalie": "Blaine Atkins",
+                  "away_goalie": "Freddie Tanner",
+                  "attendance": 19174,
+                  "arena_capacity": 19649,
+                  "winner": "Aurora"
+                },
+                {
+                  "game": 3,
+                  "home": "Aurora",
+                  "away": "Silver Pines",
+                  "home_goals": 3,
+                  "away_goals": 1,
+                  "overtime": false,
+                  "home_goalie": "Freddie Tanner",
+                  "away_goalie": "Umar Daniels",
+                  "attendance": 17035,
+                  "arena_capacity": 17575,
+                  "winner": "Aurora"
+                },
+                {
+                  "game": 4,
+                  "home": "Aurora",
+                  "away": "Silver Pines",
+                  "home_goals": 4,
+                  "away_goals": 5,
+                  "overtime": false,
+                  "home_goalie": "Freddie Tanner",
+                  "away_goalie": "Umar Daniels",
+                  "attendance": 17575,
+                  "arena_capacity": 17575,
+                  "winner": "Silver Pines"
+                },
+                {
+                  "game": 5,
+                  "home": "Silver Pines",
+                  "away": "Aurora",
+                  "home_goals": 3,
+                  "away_goals": 5,
+                  "overtime": false,
+                  "home_goalie": "Blaine Atkins",
+                  "away_goalie": "Freddie Tanner",
+                  "attendance": 19649,
+                  "arena_capacity": 19649,
+                  "winner": "Aurora"
+                }
+              ]
+            },
+            {
+              "round": "West Division First Round",
+              "higher_seed": "Pacific Tide",
+              "lower_seed": "Glaciers",
+              "winner": "Glaciers",
+              "loser": "Pacific Tide",
+              "winner_wins": 4,
+              "loser_wins": 2,
+              "games": [
+                {
+                  "game": 1,
+                  "home": "Pacific Tide",
+                  "away": "Glaciers",
+                  "home_goals": 6,
+                  "away_goals": 5,
+                  "overtime": true,
+                  "home_goalie": "Ryan Uronen",
+                  "away_goalie": "Rene Monroe",
+                  "attendance": 11426,
+                  "arena_capacity": 11426,
+                  "winner": "Pacific Tide"
+                },
+                {
+                  "game": 2,
+                  "home": "Pacific Tide",
+                  "away": "Glaciers",
+                  "home_goals": 4,
+                  "away_goals": 3,
+                  "overtime": false,
+                  "home_goalie": "Ryan Uronen",
+                  "away_goalie": "Rene Monroe",
+                  "attendance": 11005,
+                  "arena_capacity": 11426,
+                  "winner": "Pacific Tide"
+                },
+                {
+                  "game": 3,
+                  "home": "Glaciers",
+                  "away": "Pacific Tide",
+                  "home_goals": 3,
+                  "away_goals": 1,
+                  "overtime": false,
+                  "home_goalie": "Rene Monroe",
+                  "away_goalie": "Ryan Uronen",
+                  "attendance": 14071,
+                  "arena_capacity": 14707,
+                  "winner": "Glaciers"
+                },
+                {
+                  "game": 4,
+                  "home": "Glaciers",
+                  "away": "Pacific Tide",
+                  "home_goals": 5,
+                  "away_goals": 2,
+                  "overtime": false,
+                  "home_goalie": "Rene Monroe",
+                  "away_goalie": "Ryan Uronen",
+                  "attendance": 14209,
+                  "arena_capacity": 14707,
+                  "winner": "Glaciers"
+                },
+                {
+                  "game": 5,
+                  "home": "Pacific Tide",
+                  "away": "Glaciers",
+                  "home_goals": 3,
+                  "away_goals": 4,
+                  "overtime": false,
+                  "home_goalie": "Ryan Eklund",
+                  "away_goalie": "Rene Monroe",
+                  "attendance": 11031,
+                  "arena_capacity": 11426,
+                  "winner": "Glaciers"
+                },
+                {
+                  "game": 6,
+                  "home": "Glaciers",
+                  "away": "Pacific Tide",
+                  "home_goals": 7,
+                  "away_goals": 4,
+                  "overtime": false,
+                  "home_goalie": "Rene Monroe",
+                  "away_goalie": "Ryan Uronen",
+                  "attendance": 14503,
+                  "arena_capacity": 14707,
+                  "winner": "Glaciers"
+                }
+              ]
+            },
+            {
+              "round": "West Division First Round",
+              "higher_seed": "Emerald Orcas",
+              "lower_seed": "Canyon Coyotes",
+              "winner": "Canyon Coyotes",
+              "loser": "Emerald Orcas",
+              "winner_wins": 4,
+              "loser_wins": 1,
+              "games": [
+                {
+                  "game": 1,
+                  "home": "Emerald Orcas",
+                  "away": "Canyon Coyotes",
+                  "home_goals": 3,
+                  "away_goals": 4,
+                  "overtime": true,
+                  "home_goalie": "Elias Gustafsson",
+                  "away_goalie": "Jonas Clarke",
+                  "attendance": 14741,
+                  "arena_capacity": 14741,
+                  "winner": "Canyon Coyotes"
+                },
+                {
+                  "game": 2,
+                  "home": "Emerald Orcas",
+                  "away": "Canyon Coyotes",
+                  "home_goals": 1,
+                  "away_goals": 2,
+                  "overtime": true,
+                  "home_goalie": "Elias Gustafsson",
+                  "away_goalie": "Jonas Clarke",
+                  "attendance": 14204,
+                  "arena_capacity": 14741,
+                  "winner": "Canyon Coyotes"
+                },
+                {
+                  "game": 3,
+                  "home": "Canyon Coyotes",
+                  "away": "Emerald Orcas",
+                  "home_goals": 3,
+                  "away_goals": 2,
+                  "overtime": false,
+                  "home_goalie": "Jonas Clarke",
+                  "away_goalie": "Elias Gustafsson",
+                  "attendance": 17944,
+                  "arena_capacity": 18293,
+                  "winner": "Canyon Coyotes"
+                },
+                {
+                  "game": 4,
+                  "home": "Canyon Coyotes",
+                  "away": "Emerald Orcas",
+                  "home_goals": 2,
+                  "away_goals": 4,
+                  "overtime": false,
+                  "home_goalie": "Jonas Clarke",
+                  "away_goalie": "Elias Gustafsson",
+                  "attendance": 18293,
+                  "arena_capacity": 18293,
+                  "winner": "Emerald Orcas"
+                },
+                {
+                  "game": 5,
+                  "home": "Emerald Orcas",
+                  "away": "Canyon Coyotes",
+                  "home_goals": 2,
+                  "away_goals": 4,
+                  "overtime": false,
+                  "home_goalie": "Elias Gustafsson",
+                  "away_goalie": "Jonas Clarke",
+                  "attendance": 14741,
+                  "arena_capacity": 14741,
+                  "winner": "Canyon Coyotes"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Western Division Finals",
+          "series": [
+            {
+              "round": "North Division Final",
+              "higher_seed": "Icebreakers",
+              "lower_seed": "Aurora",
+              "winner": "Aurora",
+              "loser": "Icebreakers",
+              "winner_wins": 4,
+              "loser_wins": 3,
+              "games": [
+                {
+                  "game": 1,
+                  "home": "Icebreakers",
+                  "away": "Aurora",
+                  "home_goals": 2,
+                  "away_goals": 3,
+                  "overtime": false,
+                  "home_goalie": "Lane Lundqvist",
+                  "away_goalie": "Freddie Tanner",
+                  "attendance": 15327,
+                  "arena_capacity": 15327,
+                  "winner": "Aurora"
+                },
+                {
+                  "game": 2,
+                  "home": "Icebreakers",
+                  "away": "Aurora",
+                  "home_goals": 4,
+                  "away_goals": 3,
+                  "overtime": true,
+                  "home_goalie": "Lane Lundqvist",
+                  "away_goalie": "Freddie Tanner",
+                  "attendance": 15117,
+                  "arena_capacity": 15327,
+                  "winner": "Icebreakers"
+                },
+                {
+                  "game": 3,
+                  "home": "Aurora",
+                  "away": "Icebreakers",
+                  "home_goals": 5,
+                  "away_goals": 3,
+                  "overtime": false,
+                  "home_goalie": "Freddie Tanner",
+                  "away_goalie": "Wade Fenwick",
+                  "attendance": 17396,
+                  "arena_capacity": 17575,
+                  "winner": "Aurora"
+                },
+                {
+                  "game": 4,
+                  "home": "Aurora",
+                  "away": "Icebreakers",
+                  "home_goals": 4,
+                  "away_goals": 3,
+                  "overtime": false,
+                  "home_goalie": "Freddie Tanner",
+                  "away_goalie": "Lane Lundqvist",
+                  "attendance": 17575,
+                  "arena_capacity": 17575,
+                  "winner": "Aurora"
+                },
+                {
+                  "game": 5,
+                  "home": "Icebreakers",
+                  "away": "Aurora",
+                  "home_goals": 5,
+                  "away_goals": 3,
+                  "overtime": false,
+                  "home_goalie": "Lane Lundqvist",
+                  "away_goalie": "Freddie Tanner",
+                  "attendance": 15327,
+                  "arena_capacity": 15327,
+                  "winner": "Icebreakers"
+                },
+                {
+                  "game": 6,
+                  "home": "Aurora",
+                  "away": "Icebreakers",
+                  "home_goals": 3,
+                  "away_goals": 4,
+                  "overtime": false,
+                  "home_goalie": "Freddie Tanner",
+                  "away_goalie": "Lane Lundqvist",
+                  "attendance": 17575,
+                  "arena_capacity": 17575,
+                  "winner": "Icebreakers"
+                },
+                {
+                  "game": 7,
+                  "home": "Icebreakers",
+                  "away": "Aurora",
+                  "home_goals": 4,
+                  "away_goals": 7,
+                  "overtime": false,
+                  "home_goalie": "Lane Lundqvist",
+                  "away_goalie": "Freddie Tanner",
+                  "attendance": 15327,
+                  "arena_capacity": 15327,
+                  "winner": "Aurora"
+                }
+              ]
+            },
+            {
+              "round": "West Division Final",
+              "higher_seed": "Glaciers",
+              "lower_seed": "Canyon Coyotes",
+              "winner": "Glaciers",
+              "loser": "Canyon Coyotes",
+              "winner_wins": 4,
+              "loser_wins": 3,
+              "games": [
+                {
+                  "game": 1,
+                  "home": "Glaciers",
+                  "away": "Canyon Coyotes",
+                  "home_goals": 7,
+                  "away_goals": 4,
+                  "overtime": false,
+                  "home_goalie": "Rene Monroe",
+                  "away_goalie": "Jonas Clarke",
+                  "attendance": 14631,
+                  "arena_capacity": 14707,
+                  "winner": "Glaciers"
+                },
+                {
+                  "game": 2,
+                  "home": "Glaciers",
+                  "away": "Canyon Coyotes",
+                  "home_goals": 1,
+                  "away_goals": 2,
+                  "overtime": false,
+                  "home_goalie": "Rene Monroe",
+                  "away_goalie": "Jonas Clarke",
+                  "attendance": 13950,
+                  "arena_capacity": 14707,
+                  "winner": "Canyon Coyotes"
+                },
+                {
+                  "game": 3,
+                  "home": "Canyon Coyotes",
+                  "away": "Glaciers",
+                  "home_goals": 4,
+                  "away_goals": 5,
+                  "overtime": false,
+                  "home_goalie": "Jonas Clarke",
+                  "away_goalie": "Miles Sloan",
+                  "attendance": 17759,
+                  "arena_capacity": 18293,
+                  "winner": "Glaciers"
+                },
+                {
+                  "game": 4,
+                  "home": "Canyon Coyotes",
+                  "away": "Glaciers",
+                  "home_goals": 3,
+                  "away_goals": 4,
+                  "overtime": false,
+                  "home_goalie": "Jonas Clarke",
+                  "away_goalie": "Rene Monroe",
+                  "attendance": 17290,
+                  "arena_capacity": 18293,
+                  "winner": "Glaciers"
+                },
+                {
+                  "game": 5,
+                  "home": "Glaciers",
+                  "away": "Canyon Coyotes",
+                  "home_goals": 2,
+                  "away_goals": 3,
+                  "overtime": false,
+                  "home_goalie": "Rene Monroe",
+                  "away_goalie": "Jonas Clarke",
+                  "attendance": 14707,
+                  "arena_capacity": 14707,
+                  "winner": "Canyon Coyotes"
+                },
+                {
+                  "game": 6,
+                  "home": "Canyon Coyotes",
+                  "away": "Glaciers",
+                  "home_goals": 2,
+                  "away_goals": 1,
+                  "overtime": true,
+                  "home_goalie": "Jonas Clarke",
+                  "away_goalie": "Rene Monroe",
+                  "attendance": 17964,
+                  "arena_capacity": 18293,
+                  "winner": "Canyon Coyotes"
+                },
+                {
+                  "game": 7,
+                  "home": "Glaciers",
+                  "away": "Canyon Coyotes",
+                  "home_goals": 3,
+                  "away_goals": 2,
+                  "overtime": true,
+                  "home_goalie": "Rene Monroe",
+                  "away_goalie": "Jonas Clarke",
+                  "attendance": 14707,
+                  "arena_capacity": 14707,
+                  "winner": "Glaciers"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Western Conference Final",
+          "series": [
+            {
+              "round": "Western Conference Final",
+              "higher_seed": "Aurora",
+              "lower_seed": "Glaciers",
+              "winner": "Aurora",
+              "loser": "Glaciers",
+              "winner_wins": 4,
+              "loser_wins": 2,
+              "games": [
+                {
+                  "game": 1,
+                  "home": "Aurora",
+                  "away": "Glaciers",
+                  "home_goals": 5,
+                  "away_goals": 4,
+                  "overtime": false,
+                  "home_goalie": "Freddie Tanner",
+                  "away_goalie": "Rene Monroe",
+                  "attendance": 17536,
+                  "arena_capacity": 17575,
+                  "winner": "Aurora"
+                },
+                {
+                  "game": 2,
+                  "home": "Aurora",
+                  "away": "Glaciers",
+                  "home_goals": 2,
+                  "away_goals": 7,
+                  "overtime": false,
+                  "home_goalie": "Freddie Tanner",
+                  "away_goalie": "Rene Monroe",
+                  "attendance": 17575,
+                  "arena_capacity": 17575,
+                  "winner": "Glaciers"
+                },
+                {
+                  "game": 3,
+                  "home": "Glaciers",
+                  "away": "Aurora",
+                  "home_goals": 1,
+                  "away_goals": 5,
+                  "overtime": false,
+                  "home_goalie": "Rene Monroe",
+                  "away_goalie": "Freddie Tanner",
+                  "attendance": 14684,
+                  "arena_capacity": 14707,
+                  "winner": "Aurora"
+                },
+                {
+                  "game": 4,
+                  "home": "Glaciers",
+                  "away": "Aurora",
+                  "home_goals": 4,
+                  "away_goals": 3,
+                  "overtime": true,
+                  "home_goalie": "Rene Monroe",
+                  "away_goalie": "Kasper McBride",
+                  "attendance": 14441,
+                  "arena_capacity": 14707,
+                  "winner": "Glaciers"
+                },
+                {
+                  "game": 5,
+                  "home": "Aurora",
+                  "away": "Glaciers",
+                  "home_goals": 8,
+                  "away_goals": 4,
+                  "overtime": false,
+                  "home_goalie": "Freddie Tanner",
+                  "away_goalie": "Miles Sloan",
+                  "attendance": 17114,
+                  "arena_capacity": 17575,
+                  "winner": "Aurora"
+                },
+                {
+                  "game": 6,
+                  "home": "Glaciers",
+                  "away": "Aurora",
+                  "home_goals": 4,
+                  "away_goals": 7,
+                  "overtime": false,
+                  "home_goalie": "Rene Monroe",
+                  "away_goalie": "Freddie Tanner",
+                  "attendance": 14707,
+                  "arena_capacity": 14707,
+                  "winner": "Aurora"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Cup Final",
+          "series": [
+            {
+              "round": "Cup Final",
+              "higher_seed": "Aurora",
+              "lower_seed": "Harbor Kings",
+              "winner": "Aurora",
+              "loser": "Harbor Kings",
+              "winner_wins": 4,
+              "loser_wins": 2,
+              "games": [
+                {
+                  "game": 1,
+                  "home": "Aurora",
+                  "away": "Harbor Kings",
+                  "home_goals": 5,
+                  "away_goals": 4,
+                  "overtime": true,
+                  "home_goalie": "Freddie Tanner",
+                  "away_goalie": "Boris Bellamy",
+                  "attendance": 16435,
+                  "arena_capacity": 17575,
+                  "winner": "Aurora"
+                },
+                {
+                  "game": 2,
+                  "home": "Aurora",
+                  "away": "Harbor Kings",
+                  "home_goals": 2,
+                  "away_goals": 4,
+                  "overtime": false,
+                  "home_goalie": "Kasper McBride",
+                  "away_goalie": "Boris Bellamy",
+                  "attendance": 16231,
+                  "arena_capacity": 17575,
+                  "winner": "Harbor Kings"
+                },
+                {
+                  "game": 3,
+                  "home": "Harbor Kings",
+                  "away": "Aurora",
+                  "home_goals": 7,
+                  "away_goals": 4,
+                  "overtime": false,
+                  "home_goalie": "Boris Bellamy",
+                  "away_goalie": "Freddie Tanner",
+                  "attendance": 17453,
+                  "arena_capacity": 18500,
+                  "winner": "Harbor Kings"
+                },
+                {
+                  "game": 4,
+                  "home": "Harbor Kings",
+                  "away": "Aurora",
+                  "home_goals": 2,
+                  "away_goals": 4,
+                  "overtime": false,
+                  "home_goalie": "Tanner Yakovlev",
+                  "away_goalie": "Kasper McBride",
+                  "attendance": 17446,
+                  "arena_capacity": 18500,
+                  "winner": "Aurora"
+                },
+                {
+                  "game": 5,
+                  "home": "Aurora",
+                  "away": "Harbor Kings",
+                  "home_goals": 6,
+                  "away_goals": 2,
+                  "overtime": false,
+                  "home_goalie": "Kasper McBride",
+                  "away_goalie": "Tanner Yakovlev",
+                  "attendance": 16647,
+                  "arena_capacity": 17575,
+                  "winner": "Aurora"
+                },
+                {
+                  "game": 6,
+                  "home": "Harbor Kings",
+                  "away": "Aurora",
+                  "home_goals": 2,
+                  "away_goals": 3,
+                  "overtime": false,
+                  "home_goalie": "Boris Bellamy",
+                  "away_goalie": "Freddie Tanner",
+                  "attendance": 17720,
+                  "arena_capacity": 18500,
+                  "winner": "Aurora"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "retired": [
+      "Isak Kingsley (Timberwolves)",
+      "Asher Anderson (Glaciers)",
+      "Darcy Kingsley (Glaciers)",
+      "Zach Prescott (Polar Caps)",
+      "Dylan Caldwell (Polar Caps)",
+      "Ronan Quaid (Silver Pines)",
+      "Cael Lutz (Liberty Blades)",
+      "Nils Clarke (Liberty Blades)",
+      "Brendan Novak (Metro Sparks)",
+      "Ruben Stone (Metro Sparks)",
+      "Brendan Bernier (Atlantic Wolves)",
+      "Lennox Hansen (Atlantic Wolves)",
+      "Magnus Boucher (Atlantic Wolves)",
+      "Jordan Geller (Atlantic Wolves)",
+      "Nolan Campbell (Capital Foxes)",
+      "Mikael Lundqvist (Bay Comets)",
+      "Ilya Bissett (Iron Rangers)",
+      "Jesper Ford (Lake Vipers)",
+      "Beck Chandler (Lake Vipers)",
+      "Drew Foster (Granite Bears)",
+      "Jasper Turnbull (Steel River)",
+      "Mikko Fedorov (Desert Fire)",
+      "Ethan Dvorak (Desert Fire)",
+      "Tommy West (Canyon Coyotes)",
+      "Orson Foster (Canyon Coyotes)"
+    ],
+    "retired_numbers": [
+      {
+        "season": 19,
+        "number": 3,
+        "player": "Isak Kingsley",
+        "team": "Timberwolves",
+        "kind": "retired_number",
+        "title": "Number 3 Retired"
+      },
+      {
+        "season": 19,
+        "number": 8,
+        "player": "Zach Prescott",
+        "team": "Polar Caps",
+        "kind": "retired_number",
+        "title": "Number 8 Retired"
+      }
+    ],
+    "draft": {
+      "Summit Eagles": [
+        "Dax Berg"
+      ],
+      "Liberty Blades": [
+        "Elias Hawkins"
+      ],
+      "Capital Foxes": [
+        "Riley Bernier"
+      ],
+      "Bay Comets": [
+        "Zaire Hansen"
+      ],
+      "Golden Peaks": [
+        "Alessio Clements"
+      ],
+      "Desert Fire": [
+        "Zion Briggs"
+      ],
+      "Prairie Storm": [
+        "Grant Emerson"
+      ],
+      "Canyon Coyotes": [
+        "Hayden Kline"
+      ],
+      "Harbor Kings": [
+        "Vaughn Virtanen"
+      ],
+      "Emerald Orcas": [
+        "Bryce Hartikainen"
+      ],
+      "Steel River": [
+        "Devon Tierney"
+      ],
+      "Iron Rangers": [
+        "Aron Blythe"
+      ],
+      "Red Hawks": [
+        "Griffin Hobbs"
+      ],
+      "Polar Caps": [
+        "Henri Corbett"
+      ],
+      "Timberwolves": [
+        "Harlan Watson"
+      ],
+      "Glaciers": [
+        "Koda Sinclair"
+      ],
+      "Lake Vipers": [
+        "Finley Clarke"
+      ],
+      "Pacific Tide": [
+        "Aiden Holland"
+      ],
+      "Aurora": [
+        "Boris Draper"
+      ],
+      "Silver Pines": [
+        "Nash Franzen"
+      ],
+      "Icebreakers": [
+        "Max Conrad"
+      ],
+      "Granite Bears": [
+        "Julian Kendrick"
+      ],
+      "Metro Sparks": [
+        "Sacha Keller"
+      ],
+      "Atlantic Wolves": [
+        "Axel Conrad"
+      ]
+    },
+    "draft_details": {
+      "Summit Eagles": [
+        {
+          "name": "Dax Berg",
+          "position": "LW",
+          "country": "Canada",
+          "country_code": "CA",
+          "round": 1,
+          "overall": 1
+        }
+      ],
+      "Liberty Blades": [
+        {
+          "name": "Elias Hawkins",
+          "position": "RW",
+          "country": "United States",
+          "country_code": "US",
+          "round": 1,
+          "overall": 2
+        }
+      ],
+      "Capital Foxes": [
+        {
+          "name": "Riley Bernier",
+          "position": "C",
+          "country": "Canada",
+          "country_code": "CA",
+          "round": 1,
+          "overall": 3
+        }
+      ],
+      "Bay Comets": [
+        {
+          "name": "Zaire Hansen",
+          "position": "RW",
+          "country": "Germany",
+          "country_code": "DE",
+          "round": 1,
+          "overall": 4
+        }
+      ],
+      "Golden Peaks": [
+        {
+          "name": "Alessio Clements",
+          "position": "C",
+          "country": "Latvia",
+          "country_code": "LV",
+          "round": 1,
+          "overall": 5
+        }
+      ],
+      "Desert Fire": [
+        {
+          "name": "Zion Briggs",
+          "position": "C",
+          "country": "United States",
+          "country_code": "US",
+          "round": 1,
+          "overall": 6
+        }
+      ],
+      "Prairie Storm": [
+        {
+          "name": "Grant Emerson",
+          "position": "C",
+          "country": "Finland",
+          "country_code": "FI",
+          "round": 1,
+          "overall": 7
+        }
+      ],
+      "Canyon Coyotes": [
+        {
+          "name": "Hayden Kline",
+          "position": "G",
+          "country": "Canada",
+          "country_code": "CA",
+          "round": 1,
+          "overall": 8
+        }
+      ],
+      "Harbor Kings": [
+        {
+          "name": "Vaughn Virtanen",
+          "position": "RW",
+          "country": "Canada",
+          "country_code": "CA",
+          "round": 1,
+          "overall": 9
+        }
+      ],
+      "Emerald Orcas": [
+        {
+          "name": "Bryce Hartikainen",
+          "position": "C",
+          "country": "United States",
+          "country_code": "US",
+          "round": 1,
+          "overall": 10
+        }
+      ],
+      "Steel River": [
+        {
+          "name": "Devon Tierney",
+          "position": "C",
+          "country": "United States",
+          "country_code": "US",
+          "round": 1,
+          "overall": 11
+        }
+      ],
+      "Iron Rangers": [
+        {
+          "name": "Aron Blythe",
+          "position": "RW",
+          "country": "Canada",
+          "country_code": "CA",
+          "round": 1,
+          "overall": 12
+        }
+      ],
+      "Red Hawks": [
+        {
+          "name": "Griffin Hobbs",
+          "position": "C",
+          "country": "Canada",
+          "country_code": "CA",
+          "round": 1,
+          "overall": 13
+        }
+      ],
+      "Polar Caps": [
+        {
+          "name": "Henri Corbett",
+          "position": "C",
+          "country": "United States",
+          "country_code": "US",
+          "round": 1,
+          "overall": 14
+        }
+      ],
+      "Timberwolves": [
+        {
+          "name": "Harlan Watson",
+          "position": "LW",
+          "country": "United States",
+          "country_code": "US",
+          "round": 1,
+          "overall": 15
+        }
+      ],
+      "Glaciers": [
+        {
+          "name": "Koda Sinclair",
+          "position": "C",
+          "country": "Lithuania",
+          "country_code": "LT",
+          "round": 1,
+          "overall": 16
+        }
+      ],
+      "Lake Vipers": [
+        {
+          "name": "Finley Clarke",
+          "position": "D",
+          "country": "United States",
+          "country_code": "US",
+          "round": 1,
+          "overall": 17
+        }
+      ],
+      "Pacific Tide": [
+        {
+          "name": "Aiden Holland",
+          "position": "C",
+          "country": "United States",
+          "country_code": "US",
+          "round": 1,
+          "overall": 18
+        }
+      ],
+      "Aurora": [
+        {
+          "name": "Boris Draper",
+          "position": "LW",
+          "country": "United States",
+          "country_code": "US",
+          "round": 1,
+          "overall": 19
+        }
+      ],
+      "Silver Pines": [
+        {
+          "name": "Nash Franzen",
+          "position": "LW",
+          "country": "Canada",
+          "country_code": "CA",
+          "round": 1,
+          "overall": 20
+        }
+      ],
+      "Icebreakers": [
+        {
+          "name": "Max Conrad",
+          "position": "C",
+          "country": "United States",
+          "country_code": "US",
+          "round": 1,
+          "overall": 21
+        }
+      ],
+      "Granite Bears": [
+        {
+          "name": "Julian Kendrick",
+          "position": "D",
+          "country": "United States",
+          "country_code": "US",
+          "round": 1,
+          "overall": 22
+        }
+      ],
+      "Metro Sparks": [
+        {
+          "name": "Sacha Keller",
+          "position": "C",
+          "country": "Canada",
+          "country_code": "CA",
+          "round": 1,
+          "overall": 23
+        }
+      ],
+      "Atlantic Wolves": [
+        {
+          "name": "Axel Conrad",
+          "position": "G",
+          "country": "United States",
+          "country_code": "US",
+          "round": 1,
+          "overall": 24
+        }
+      ]
+    },
+    "free_agency": {
+      "re_signings": [
+        {
+          "team": "Aurora",
+          "player": "Duke Bryant",
+          "years": 3,
+          "cap_hit": 1.59
+        },
+        {
+          "team": "Aurora",
+          "player": "Dylan Gordon",
+          "years": 3,
+          "cap_hit": 1.52
+        },
+        {
+          "team": "Aurora",
+          "player": "Jake Kendrick",
+          "years": 1,
+          "cap_hit": 2.13
+        },
+        {
+          "team": "Icebreakers",
+          "player": "Philip Holm",
+          "years": 3,
+          "cap_hit": 1.43
+        },
+        {
+          "team": "Icebreakers",
+          "player": "Kasper Bergman",
+          "years": 3,
+          "cap_hit": 1.44
+        },
+        {
+          "team": "Icebreakers",
+          "player": "Mads Geller",
+          "years": 3,
+          "cap_hit": 1.4
+        },
+        {
+          "team": "Timberwolves",
+          "player": "Remy Tarasenko",
+          "years": 3,
+          "cap_hit": 1.65
+        },
+        {
+          "team": "Timberwolves",
+          "player": "Anson Poitras",
+          "years": 1,
+          "cap_hit": 2.12
+        },
+        {
+          "team": "Timberwolves",
+          "player": "Rhett Bergman",
+          "years": 2,
+          "cap_hit": 1.8
+        },
+        {
+          "team": "Timberwolves",
+          "player": "Evan Larsen",
+          "years": 1,
+          "cap_hit": 1.71
+        },
+        {
+          "team": "Timberwolves",
+          "player": "Drew Bryant",
+          "years": 1,
+          "cap_hit": 1.84
+        },
+        {
+          "team": "Glaciers",
+          "player": "Bo Blackwood",
+          "years": 2,
+          "cap_hit": 1.85
+        },
+        {
+          "team": "Glaciers",
+          "player": "Rene Monroe",
+          "years": 3,
+          "cap_hit": 1.55
+        },
+        {
+          "team": "Glaciers",
+          "player": "Nathan Ryder",
+          "years": 3,
+          "cap_hit": 1.5
+        },
+        {
+          "team": "Glaciers",
+          "player": "Jude Spencer",
+          "years": 3,
+          "cap_hit": 1.5
+        },
+        {
+          "team": "Glaciers",
+          "player": "Tobin Bennett",
+          "years": 1,
+          "cap_hit": 2.06
+        },
+        {
+          "team": "Polar Caps",
+          "player": "Kristian Peterson",
+          "years": 3,
+          "cap_hit": 1.54
+        },
+        {
+          "team": "Polar Caps",
+          "player": "Nolan Vickers",
+          "years": 1,
+          "cap_hit": 1.88
+        },
+        {
+          "team": "Polar Caps",
+          "player": "Freddie Crosby",
+          "years": 1,
+          "cap_hit": 1.83
+        },
+        {
+          "team": "Polar Caps",
+          "player": "Connor Swan",
+          "years": 3,
+          "cap_hit": 1.42
+        },
+        {
+          "team": "Polar Caps",
+          "player": "Otis Brockman",
+          "years": 3,
+          "cap_hit": 1.5
+        },
+        {
+          "team": "Polar Caps",
+          "player": "Grant Carter",
+          "years": 1,
+          "cap_hit": 1.88
+        },
+        {
+          "team": "Silver Pines",
+          "player": "Max Amundsen",
+          "years": 1,
+          "cap_hit": 2.04
+        },
+        {
+          "team": "Silver Pines",
+          "player": "Colton Lachance",
+          "years": 1,
+          "cap_hit": 2.11
+        },
+        {
+          "team": "Silver Pines",
+          "player": "Tommy Whitman",
+          "years": 3,
+          "cap_hit": 1.56
+        },
+        {
+          "team": "Silver Pines",
+          "player": "Dimitri Xenos",
+          "years": 1,
+          "cap_hit": 1.68
+        },
+        {
+          "team": "Silver Pines",
+          "player": "Carter Kramer",
+          "years": 3,
+          "cap_hit": 1.51
+        },
+        {
+          "team": "Harbor Kings",
+          "player": "Tanner Yakovlev",
+          "years": 3,
+          "cap_hit": 1.57
+        },
+        {
+          "team": "Harbor Kings",
+          "player": "Duke Carlsen",
+          "years": 1,
+          "cap_hit": 1.8
+        },
+        {
+          "team": "Harbor Kings",
+          "player": "Orion Corbett",
+          "years": 3,
+          "cap_hit": 1.47
+        },
+        {
+          "team": "Harbor Kings",
+          "player": "Sebastian Zimmer",
+          "years": 3,
+          "cap_hit": 1.47
+        },
+        {
+          "team": "Liberty Blades",
+          "player": "Magnus Greene",
+          "years": 3,
+          "cap_hit": 1.53
+        },
+        {
+          "team": "Liberty Blades",
+          "player": "Oliver Kane",
+          "years": 3,
+          "cap_hit": 1.65
+        },
+        {
+          "team": "Liberty Blades",
+          "player": "Caleb Gustafsson",
+          "years": 1,
+          "cap_hit": 1.75
+        },
+        {
+          "team": "Liberty Blades",
+          "player": "Aiden Sauer",
+          "years": 2,
+          "cap_hit": 2.36
+        },
+        {
+          "team": "Liberty Blades",
+          "player": "Tristan Hawkins",
+          "years": 1,
+          "cap_hit": 1.77
+        },
+        {
+          "team": "Metro Sparks",
+          "player": "Evan Cook",
+          "years": 3,
+          "cap_hit": 1.57
+        },
+        {
+          "team": "Metro Sparks",
+          "player": "Roman Ryder",
+          "years": 3,
+          "cap_hit": 1.58
+        },
+        {
+          "team": "Metro Sparks",
+          "player": "Julius Romanov",
+          "years": 3,
+          "cap_hit": 1.5
+        },
+        {
+          "team": "Metro Sparks",
+          "player": "Gael Edwards",
+          "years": 3,
+          "cap_hit": 1.51
+        },
+        {
+          "team": "Metro Sparks",
+          "player": "Mark Becker",
+          "years": 1,
+          "cap_hit": 1.63
+        },
+        {
+          "team": "Metro Sparks",
+          "player": "Pavel Vickers",
+          "years": 2,
+          "cap_hit": 2.15
+        },
+        {
+          "team": "Metro Sparks",
+          "player": "Greer Zimmer",
+          "years": 3,
+          "cap_hit": 1.51
+        },
+        {
+          "team": "Metro Sparks",
+          "player": "Oscar Falk",
+          "years": 3,
+          "cap_hit": 1.45
+        },
+        {
+          "team": "Metro Sparks",
+          "player": "Brady Corbett",
+          "years": 1,
+          "cap_hit": 1.88
+        },
+        {
+          "team": "Metro Sparks",
+          "player": "Nico Neville",
+          "years": 3,
+          "cap_hit": 1.45
+        },
+        {
+          "team": "Atlantic Wolves",
+          "player": "Zion Rowe",
+          "years": 3,
+          "cap_hit": 1.68
+        },
+        {
+          "team": "Atlantic Wolves",
+          "player": "Sven Lawson",
+          "years": 2,
+          "cap_hit": 2.01
+        },
+        {
+          "team": "Atlantic Wolves",
+          "player": "Nathan Laird",
+          "years": 3,
+          "cap_hit": 1.5
+        },
+        {
+          "team": "Capital Foxes",
+          "player": "Philip Tobin",
+          "years": 3,
+          "cap_hit": 1.54
+        },
+        {
+          "team": "Capital Foxes",
+          "player": "Micah Nadeau",
+          "years": 1,
+          "cap_hit": 1.92
+        },
+        {
+          "team": "Capital Foxes",
+          "player": "Koda Costello",
+          "years": 3,
+          "cap_hit": 1.47
+        },
+        {
+          "team": "Capital Foxes",
+          "player": "Dylan Gilroy",
+          "years": 2,
+          "cap_hit": 1.86
+        },
+        {
+          "team": "Capital Foxes",
+          "player": "Wade Gordon",
+          "years": 1,
+          "cap_hit": 1.52
+        },
+        {
+          "team": "Capital Foxes",
+          "player": "Caden Carver",
+          "years": 3,
+          "cap_hit": 1.41
+        },
+        {
+          "team": "Capital Foxes",
+          "player": "Marlon Alvarez",
+          "years": 1,
+          "cap_hit": 1.75
+        },
+        {
+          "team": "Bay Comets",
+          "player": "Nash Strom",
+          "years": 1,
+          "cap_hit": 1.83
+        },
+        {
+          "team": "Bay Comets",
+          "player": "Alessio Watson",
+          "years": 3,
+          "cap_hit": 1.55
+        },
+        {
+          "team": "Bay Comets",
+          "player": "Shane Whitman",
+          "years": 3,
+          "cap_hit": 1.53
+        },
+        {
+          "team": "Bay Comets",
+          "player": "Mikko Swan",
+          "years": 3,
+          "cap_hit": 1.46
+        },
+        {
+          "team": "Bay Comets",
+          "player": "Aron Bowen",
+          "years": 1,
+          "cap_hit": 1.76
+        },
+        {
+          "team": "Bay Comets",
+          "player": "Miles Henderson",
+          "years": 1,
+          "cap_hit": 1.68
+        },
+        {
+          "team": "Prairie Storm",
+          "player": "Wyatt Reardon",
+          "years": 3,
+          "cap_hit": 1.55
+        },
+        {
+          "team": "Prairie Storm",
+          "player": "Oswin McNabb",
+          "years": 3,
+          "cap_hit": 1.63
+        },
+        {
+          "team": "Prairie Storm",
+          "player": "Griffin Fisher",
+          "years": 2,
+          "cap_hit": 1.85
+        },
+        {
+          "team": "Prairie Storm",
+          "player": "Parker Heller",
+          "years": 1,
+          "cap_hit": 1.79
+        },
+        {
+          "team": "Prairie Storm",
+          "player": "Lane Grier",
+          "years": 1,
+          "cap_hit": 1.66
+        },
+        {
+          "team": "Prairie Storm",
+          "player": "Filip Blackwood",
+          "years": 2,
+          "cap_hit": 2.02
+        },
+        {
+          "team": "Iron Rangers",
+          "player": "Caleb Aho",
+          "years": 1,
+          "cap_hit": 1.9
+        },
+        {
+          "team": "Iron Rangers",
+          "player": "Valen Hawkins",
+          "years": 3,
+          "cap_hit": 1.63
+        },
+        {
+          "team": "Iron Rangers",
+          "player": "Evan Isaksson",
+          "years": 3,
+          "cap_hit": 1.55
+        },
+        {
+          "team": "Iron Rangers",
+          "player": "Asher Ford",
+          "years": 1,
+          "cap_hit": 1.63
+        },
+        {
+          "team": "Iron Rangers",
+          "player": "Rhett Cooper",
+          "years": 2,
+          "cap_hit": 1.86
+        },
+        {
+          "team": "Iron Rangers",
+          "player": "Alex Fleming",
+          "years": 3,
+          "cap_hit": 1.46
+        },
+        {
+          "team": "Iron Rangers",
+          "player": "Sami Clements",
+          "years": 1,
+          "cap_hit": 1.85
+        },
+        {
+          "team": "Iron Rangers",
+          "player": "Kurt Carlsen",
+          "years": 3,
+          "cap_hit": 1.47
+        },
+        {
+          "team": "Iron Rangers",
+          "player": "Dax York",
+          "years": 1,
+          "cap_hit": 1.84
+        },
+        {
+          "team": "Lake Vipers",
+          "player": "Shane Radek",
+          "years": 1,
+          "cap_hit": 1.96
+        },
+        {
+          "team": "Lake Vipers",
+          "player": "Xavier Kline",
+          "years": 3,
+          "cap_hit": 1.59
+        },
+        {
+          "team": "Lake Vipers",
+          "player": "Wyatt Willis",
+          "years": 2,
+          "cap_hit": 2.13
+        },
+        {
+          "team": "Lake Vipers",
+          "player": "Anton Gamble",
+          "years": 1,
+          "cap_hit": 1.62
+        },
+        {
+          "team": "Lake Vipers",
+          "player": "Parker Peters",
+          "years": 1,
+          "cap_hit": 1.63
+        },
+        {
+          "team": "Granite Bears",
+          "player": "Oswin Farrell",
+          "years": 3,
+          "cap_hit": 1.54
+        },
+        {
+          "team": "Granite Bears",
+          "player": "Eli Carter",
+          "years": 3,
+          "cap_hit": 1.57
+        },
+        {
+          "team": "Granite Bears",
+          "player": "Anton Bishop",
+          "years": 3,
+          "cap_hit": 1.57
+        },
+        {
+          "team": "Granite Bears",
+          "player": "Brock Atkins",
+          "years": 3,
+          "cap_hit": 1.47
+        },
+        {
+          "team": "Granite Bears",
+          "player": "Mikael Bryant",
+          "years": 3,
+          "cap_hit": 1.46
+        },
+        {
+          "team": "Steel River",
+          "player": "Enzo Wilder",
+          "years": 1,
+          "cap_hit": 2.01
+        },
+        {
+          "team": "Steel River",
+          "player": "Jonas Aho",
+          "years": 1,
+          "cap_hit": 1.97
+        },
+        {
+          "team": "Steel River",
+          "player": "Asher Madden",
+          "years": 3,
+          "cap_hit": 1.53
+        },
+        {
+          "team": "Steel River",
+          "player": "Oswin Lawson",
+          "years": 3,
+          "cap_hit": 1.51
+        },
+        {
+          "team": "Steel River",
+          "player": "Adam Barrett",
+          "years": 3,
+          "cap_hit": 1.63
+        },
+        {
+          "team": "Red Hawks",
+          "player": "Anson Carlsson",
+          "years": 3,
+          "cap_hit": 1.57
+        },
+        {
+          "team": "Red Hawks",
+          "player": "Caleb Brockman",
+          "years": 3,
+          "cap_hit": 1.49
+        },
+        {
+          "team": "Red Hawks",
+          "player": "Kevin Sauer",
+          "years": 3,
+          "cap_hit": 1.5
+        },
+        {
+          "team": "Red Hawks",
+          "player": "Otto Reeves",
+          "years": 2,
+          "cap_hit": 1.86
+        },
+        {
+          "team": "Red Hawks",
+          "player": "Kian Conrad",
+          "years": 3,
+          "cap_hit": 1.39
+        },
+        {
+          "team": "Desert Fire",
+          "player": "Parker Laird",
+          "years": 3,
+          "cap_hit": 1.63
+        },
+        {
+          "team": "Desert Fire",
+          "player": "Mark Matson",
+          "years": 3,
+          "cap_hit": 1.56
+        },
+        {
+          "team": "Desert Fire",
+          "player": "Silas Turnbull",
+          "years": 1,
+          "cap_hit": 1.76
+        },
+        {
+          "team": "Desert Fire",
+          "player": "Devon Laird",
+          "years": 2,
+          "cap_hit": 1.86
+        },
+        {
+          "team": "Desert Fire",
+          "player": "Adam Morrison",
+          "years": 2,
+          "cap_hit": 1.87
+        },
+        {
+          "team": "Desert Fire",
+          "player": "Blaine Eriksson",
+          "years": 2,
+          "cap_hit": 1.72
+        },
+        {
+          "team": "Pacific Tide",
+          "player": "Ruben Abbott",
+          "years": 3,
+          "cap_hit": 1.54
+        },
+        {
+          "team": "Pacific Tide",
+          "player": "Edvin Bryant",
+          "years": 3,
+          "cap_hit": 1.66
+        },
+        {
+          "team": "Pacific Tide",
+          "player": "Eli Clements",
+          "years": 2,
+          "cap_hit": 2.11
+        },
+        {
+          "team": "Pacific Tide",
+          "player": "Harlan Poitras",
+          "years": 1,
+          "cap_hit": 1.65
+        },
+        {
+          "team": "Summit Eagles",
+          "player": "Gareth Zaitsev",
+          "years": 1,
+          "cap_hit": 2.07
+        },
+        {
+          "team": "Summit Eagles",
+          "player": "Keaton Lawson",
+          "years": 3,
+          "cap_hit": 1.56
+        },
+        {
+          "team": "Summit Eagles",
+          "player": "Elias Goodwin",
+          "years": 1,
+          "cap_hit": 1.76
+        },
+        {
+          "team": "Summit Eagles",
+          "player": "Jake Mantha",
+          "years": 3,
+          "cap_hit": 1.42
+        },
+        {
+          "team": "Summit Eagles",
+          "player": "Emmett Henley",
+          "years": 2,
+          "cap_hit": 1.85
+        },
+        {
+          "team": "Summit Eagles",
+          "player": "Mikko Carver",
+          "years": 1,
+          "cap_hit": 1.88
+        },
+        {
+          "team": "Canyon Coyotes",
+          "player": "Ilya Amundsen",
+          "years": 3,
+          "cap_hit": 1.55
+        },
+        {
+          "team": "Canyon Coyotes",
+          "player": "Finley Heller",
+          "years": 1,
+          "cap_hit": 1.77
+        },
+        {
+          "team": "Canyon Coyotes",
+          "player": "Loren West",
+          "years": 3,
+          "cap_hit": 1.48
+        },
+        {
+          "team": "Canyon Coyotes",
+          "player": "Kian Arvidsson",
+          "years": 3,
+          "cap_hit": 1.47
+        },
+        {
+          "team": "Canyon Coyotes",
+          "player": "Urban Harris",
+          "years": 1,
+          "cap_hit": 1.89
+        },
+        {
+          "team": "Emerald Orcas",
+          "player": "Elias Gustafsson",
+          "years": 3,
+          "cap_hit": 1.69
+        },
+        {
+          "team": "Emerald Orcas",
+          "player": "Patrik Drake",
+          "years": 3,
+          "cap_hit": 1.57
+        },
+        {
+          "team": "Emerald Orcas",
+          "player": "Wyatt Robertson",
+          "years": 3,
+          "cap_hit": 1.55
+        },
+        {
+          "team": "Emerald Orcas",
+          "player": "Ben Jensen",
+          "years": 2,
+          "cap_hit": 2.15
+        },
+        {
+          "team": "Emerald Orcas",
+          "player": "Kieran Harris",
+          "years": 3,
+          "cap_hit": 1.51
+        },
+        {
+          "team": "Emerald Orcas",
+          "player": "Sam Renaud",
+          "years": 3,
+          "cap_hit": 1.5
+        },
+        {
+          "team": "Emerald Orcas",
+          "player": "Jake Marklund",
+          "years": 3,
+          "cap_hit": 1.5
+        },
+        {
+          "team": "Emerald Orcas",
+          "player": "Teemu Peltonen",
+          "years": 2,
+          "cap_hit": 2.11
+        },
+        {
+          "team": "Golden Peaks",
+          "player": "Brendan Radek",
+          "years": 3,
+          "cap_hit": 1.54
+        },
+        {
+          "team": "Golden Peaks",
+          "player": "Pierce Toivonen",
+          "years": 3,
+          "cap_hit": 1.48
+        },
+        {
+          "team": "Golden Peaks",
+          "player": "Nico Fitzpatrick",
+          "years": 3,
+          "cap_hit": 1.45
+        },
+        {
+          "team": "Golden Peaks",
+          "player": "Marek Dreyer",
+          "years": 3,
+          "cap_hit": 1.4
+        },
+        {
+          "team": "Golden Peaks",
+          "player": "Hudson Bergman",
+          "years": 2,
+          "cap_hit": 2.34
+        }
+      ],
+      "signings": [
+        {
+          "team": "Timberwolves",
+          "player": "Kieran Malloy",
+          "years": 1,
+          "cap_hit": 1.69
+        },
+        {
+          "team": "Harbor Kings",
+          "player": "Troy Gamble",
+          "years": 3,
+          "cap_hit": 1.6
+        },
+        {
+          "team": "Liberty Blades",
+          "player": "Rhett Harper",
+          "years": 1,
+          "cap_hit": 1.98
+        },
+        {
+          "team": "Atlantic Wolves",
+          "player": "Brant McNabb",
+          "years": 2,
+          "cap_hit": 1.67
+        },
+        {
+          "team": "Capital Foxes",
+          "player": "Bryce Abbott",
+          "years": 1,
+          "cap_hit": 1.91
+        },
+        {
+          "team": "Capital Foxes",
+          "player": "Cole Clarke",
+          "years": 1,
+          "cap_hit": 1.66
+        },
+        {
+          "team": "Steel River",
+          "player": "Keaton Ritchie",
+          "years": 1,
+          "cap_hit": 1.97
+        },
+        {
+          "team": "Steel River",
+          "player": "Zach Avery",
+          "years": 1,
+          "cap_hit": 1.96
+        },
+        {
+          "team": "Steel River",
+          "player": "Kellen Mercer",
+          "years": 1,
+          "cap_hit": 1.95
+        },
+        {
+          "team": "Emerald Orcas",
+          "player": "Tobias Kingsley",
+          "years": 1,
+          "cap_hit": 1.92
+        }
+      ],
+      "remaining_free_agents": [
+        {
+          "name": "Zane Clarke",
+          "position": "LW",
+          "age": 37,
+          "overall": 3.24
+        },
+        {
+          "name": "Vlad Fairchild",
+          "position": "C",
+          "age": 34,
+          "overall": 3.15
+        },
+        {
+          "name": "Ville Laird",
+          "position": "C",
+          "age": 34,
+          "overall": 3.13
+        },
+        {
+          "name": "Elian Bennett",
+          "position": "C",
+          "age": 33,
+          "overall": 3.11
+        },
+        {
+          "name": "Taylor Gauthier",
+          "position": "C",
+          "age": 21,
+          "overall": 3.06
+        },
+        {
+          "name": "Noel Stone",
+          "position": "RW",
+          "age": 35,
+          "overall": 3.04
+        },
+        {
+          "name": "Jake Hugheson",
+          "position": "C",
+          "age": 32,
+          "overall": 3.02
+        },
+        {
+          "name": "Lane Amundsen",
+          "position": "C",
+          "age": 21,
+          "overall": 2.96
+        },
+        {
+          "name": "Mason Lawson",
+          "position": "C",
+          "age": 35,
+          "overall": 2.94
+        },
+        {
+          "name": "Edvin Delaney",
+          "position": "LW",
+          "age": 32,
+          "overall": 2.87
+        },
+        {
+          "name": "Bryce Hale",
+          "position": "LW",
+          "age": 26,
+          "overall": 2.82
+        },
+        {
+          "name": "Anson Peters",
+          "position": "RW",
+          "age": 37,
+          "overall": 2.78
+        },
+        {
+          "name": "Elian Yakovlev",
+          "position": "C",
+          "age": 32,
+          "overall": 2.78
+        },
+        {
+          "name": "Amir Turnbull",
+          "position": "RW",
+          "age": 32,
+          "overall": 2.77
+        },
+        {
+          "name": "Louie Wikstrom",
+          "position": "LW",
+          "age": 23,
+          "overall": 2.74
+        },
+        {
+          "name": "Eli Turnbull",
+          "position": "RW",
+          "age": 34,
+          "overall": 2.71
+        },
+        {
+          "name": "Liam Faulkner",
+          "position": "C",
+          "age": 37,
+          "overall": 2.16
+        },
+        {
+          "name": "Umar Ballard",
+          "position": "LW",
+          "age": 38,
+          "overall": 2.11
+        }
+      ]
+    }
   }
 ]

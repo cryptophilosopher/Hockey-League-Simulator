@@ -437,6 +437,7 @@ def _apply_injuries(team: Team, strategy: str, rng: random.Random) -> list[Injur
             probability *= 1.85
 
         if rng.random() < probability:
+            previous_games_out = player.injured_games_remaining
             injury_type, taxonomy_games = _sample_injury_taxonomy(rng, injury_mult)
             sampled_games = _sample_games_missed(rng, injury_mult)
             games_out = max(sampled_games, taxonomy_games)
@@ -450,8 +451,10 @@ def _apply_injuries(team: Team, strategy: str, rng: random.Random) -> list[Injur
                 # Keep season-ending injuries out through playoffs; reset happens in offseason.
                 games_out = max(games_out, 200)
             player.injuries += 1
-            player.injured_games_remaining = max(player.injured_games_remaining, games_out)
-            player.games_missed_injury += games_out
+            new_games_out = max(previous_games_out, games_out)
+            player.injured_games_remaining = new_games_out
+            # Track only incremental games added by a new/aggravated injury event.
+            player.games_missed_injury += max(0, new_games_out - previous_games_out)
             player.injury_type = injury_type
             player.injury_status = injury_status
             player.dtd_play_today = False

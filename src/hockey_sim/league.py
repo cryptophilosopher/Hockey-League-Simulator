@@ -877,17 +877,19 @@ class LeagueSimulator:
         underdog_push = 0.0
         if team_rec is not None and opp_rec is not None and team_rec.point_pct + 0.015 < opp_rec.point_pct:
             underdog_push = 0.04
+        healthy_by_pos: dict[str, int] = {"C": 0, "LW": 0, "RW": 0, "D": 0, "G": 0}
+        for p in team.roster:
+            if p.injured_games_remaining <= 0:
+                healthy_by_pos[p.position] = healthy_by_pos.get(p.position, 0) + 1
 
         for player in team.roster:
             if not player.is_dtd:
                 player.dtd_play_today = False
                 continue
 
-            healthy_depth = [
-                p for p in team.roster
-                if p.name != player.name and p.position == player.position and p.injured_games_remaining <= 0
-            ]
-            if player.position in GOALIE_POSITIONS and not healthy_depth:
+            healthy_depth_count = max(0, healthy_by_pos.get(player.position, 0))
+            has_healthy_depth = healthy_depth_count > 0
+            if player.position in GOALIE_POSITIONS and not has_healthy_depth:
                 player.dtd_play_today = True
                 continue
 
@@ -904,7 +906,7 @@ class LeagueSimulator:
                 play_probability += 0.08
             elif style == "defensive":
                 play_probability -= 0.07
-            if not healthy_depth:
+            if not has_healthy_depth:
                 play_probability += 0.20
             else:
                 play_probability -= 0.05
