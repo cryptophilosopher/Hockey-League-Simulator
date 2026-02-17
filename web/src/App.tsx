@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
-type MainNavKey = "home" | "inbox" | "transactions" | "scores" | "team_stats" | "league_stats" | "standings" | "league_records" | "cup_history" | "roster" | "lines" | "callups" | "minors" | "franchise" | "records" | "banners";
+type MainNavKey = "home" | "inbox" | "transactions" | "contracts" | "free_agents" | "scores" | "league_news" | "team_stats" | "league_stats" | "standings" | "league_records" | "cup_history" | "roster" | "lines" | "callups" | "minors" | "franchise" | "records" | "banners";
 type StandingsTab = "standings" | "wildcard" | "playoffs";
 type NavScope = "league" | "team";
 
@@ -502,6 +502,7 @@ type CupHistoryRow = {
   runner_logo_url?: string;
   runner_captain: string;
   runner_coach: string;
+  series?: string;
   mvp: string;
 };
 
@@ -521,6 +522,8 @@ type InboxEvent = {
 
 type CallupsPayload = {
   team: string;
+  active_count: number;
+  max_active: number;
   injuries: Array<{ name: string; position: string; games_out: number }>;
   roster: Array<{
     name: string;
@@ -576,6 +579,58 @@ type BannersPayload = {
     kind: string;
     title: string;
     team: string;
+    number?: number;
+    player?: string;
+  }>;
+};
+
+type ContractsPayload = {
+  team: string;
+  cap_limit: number;
+  cap_used: number;
+  cap_space: number;
+  active_count: number;
+  max_active: number;
+  active: Array<{
+    team: string;
+    name: string;
+    position: string;
+    age: number;
+    years_left: number;
+    cap_hit: number;
+    contract_type: string;
+    is_rfa: boolean;
+    injured: boolean;
+    injured_games_remaining: number;
+  }>;
+  minors: Array<{
+    team: string;
+    name: string;
+    position: string;
+    age: number;
+    years_left: number;
+    cap_hit: number;
+    contract_type: string;
+    is_rfa: boolean;
+    injured: boolean;
+    injured_games_remaining: number;
+  }>;
+};
+
+type FreeAgentsPayload = {
+  team: string;
+  cap_limit: number;
+  cap_used: number;
+  cap_space: number;
+  rows: Array<{
+    name: string;
+    position: string;
+    age: number;
+    overall: number;
+    ask_years: number;
+    ask_cap_hit: number;
+    contract_type: string;
+    is_rfa: boolean;
   }>;
 };
 
@@ -619,6 +674,9 @@ export default function App() {
   const [cupHistoryRows, setCupHistoryRows] = useState<CupHistoryRow[]>([]);
   const [inboxEvents, setInboxEvents] = useState<InboxEvent[]>([]);
   const [transactions, setTransactions] = useState<TransactionRow[]>([]);
+  const [contractsData, setContractsData] = useState<ContractsPayload | null>(null);
+  const [freeAgentsData, setFreeAgentsData] = useState<FreeAgentsPayload | null>(null);
+  const [leagueNews, setLeagueNews] = useState<TransactionRow[]>([]);
   const [recordsData, setRecordsData] = useState<RecordsPayload | null>(null);
   const [bannersData, setBannersData] = useState<BannersPayload | null>(null);
   const [callupsData, setCallupsData] = useState<CallupsPayload | null>(null);
@@ -777,6 +835,22 @@ export default function App() {
     setTransactions(await fetchJson<TransactionRow[]>(`/transactions?team=${encodeURIComponent(chosen)}&limit=250`));
   }
 
+  async function loadContracts(teamName?: string) {
+    const chosen = teamName ?? meta?.user_team;
+    if (!chosen) return;
+    setContractsData(await fetchJson<ContractsPayload>(`/contracts?team=${encodeURIComponent(chosen)}`));
+  }
+
+  async function loadFreeAgents(teamName?: string) {
+    const chosen = teamName ?? meta?.user_team;
+    if (!chosen) return;
+    setFreeAgentsData(await fetchJson<FreeAgentsPayload>(`/free-agents?team=${encodeURIComponent(chosen)}`));
+  }
+
+  async function loadLeagueNews() {
+    setLeagueNews(await fetchJson<TransactionRow[]>("/news?limit=180"));
+  }
+
   async function loadRecords(teamName?: string) {
     const chosen = teamName ?? meta?.user_team;
     const query = chosen ? `?team=${encodeURIComponent(chosen)}` : "";
@@ -809,7 +883,10 @@ export default function App() {
         loadFranchise(),
         loadHome(),
         loadInbox(),
+        (mainNav === "league_news" ? loadLeagueNews() : Promise.resolve()),
         (mainNav === "transactions" ? loadTransactions(m.user_team) : Promise.resolve()),
+        (mainNav === "contracts" ? loadContracts(m.user_team) : Promise.resolve()),
+        (mainNav === "free_agents" ? loadFreeAgents(m.user_team) : Promise.resolve()),
         (mainNav === "callups" ? loadCallups(m.user_team) : Promise.resolve()),
         ((mainNav === "records" || mainNav === "league_records") ? loadRecords(m.user_team) : Promise.resolve()),
         (mainNav === "banners" ? loadBanners(m.user_team) : Promise.resolve()),
@@ -909,6 +986,20 @@ export default function App() {
     await refreshAll();
   }
 
+  async function signFreeAgent(playerName: string, years: number, capHit: number) {
+    await fetchJson("/free-agents/sign", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        team_name: meta?.user_team,
+        player_name: playerName,
+        years,
+        cap_hit: capHit,
+      }),
+    });
+    await refreshAll();
+  }
+
   async function saveLines() {
     await fetchJson("/lines", {
       method: "POST",
@@ -980,6 +1071,7 @@ export default function App() {
 
   const leagueNav: Array<[MainNavKey, string]> = [
     ["scores", "Scores"],
+    ["league_news", "League News"],
     ["league_stats", "Stats"],
     ["standings", "Standings"],
     ["cup_history", "Cup History"],
@@ -987,20 +1079,22 @@ export default function App() {
   ];
   const teamNav: Array<[MainNavKey, string]> = [
     ["home", "Home"],
-    ["banners", "Banners"],
-    ["inbox", `Inbox${inboxEvents.length > 0 ? ` (${inboxEvents.length})` : ""}`],
     ["transactions", "Transactions"],
+    ["contracts", "Contracts"],
+    ["free_agents", "Free Agents"],
     ["team_stats", "Team Stats"],
-    ["records", "Records"],
     ["roster", "Roster"],
     ["lines", "Lines"],
     ["callups", "Call Ups"],
     ["minors", "Minor League"],
     ["franchise", "History"],
+    ["banners", "Banners"],
+    ["records", "Records"],
   ];
 
   function handleNavSelect(key: MainNavKey) {
     if (key === "scores") setScoreDay(0);
+    if (key === "league_news") void loadLeagueNews();
     if (key === "team_stats") void loadLeaders("team");
     if (key === "league_stats") void loadLeaders("league");
     if (key === "records" || key === "league_records") void loadRecords();
@@ -1008,6 +1102,8 @@ export default function App() {
     if (key === "cup_history") void loadCupHistory();
     if (key === "inbox") void loadInbox();
     if (key === "transactions") void loadTransactions();
+    if (key === "contracts") void loadContracts();
+    if (key === "free_agents") void loadFreeAgents();
     if (key === "roster") void loadRoster();
     if (key === "lines") void loadLines();
     if (key === "callups") void loadCallups();
@@ -1245,7 +1341,7 @@ export default function App() {
           <table>
             <thead>
               <tr>
-                <th>Season</th><th>Winner</th><th>Captain</th><th>Coach</th><th>Runner-Up</th><th>Captain</th><th>Coach</th><th>MVP</th>
+                <th>Season</th><th>Winner</th><th>Captain</th><th>Coach</th><th>Runner-Up</th><th>Captain</th><th>Coach</th><th>Series</th><th>MVP</th>
               </tr>
             </thead>
             <tbody>
@@ -1258,11 +1354,29 @@ export default function App() {
                   <td className="team-cell">{r.runner_logo_url ? <img className="table-logo" src={logoUrl(r.runner_logo_url)} alt={r.runner_up} /> : null}<span>{r.runner_up}</span></td>
                   <td>{r.runner_captain}</td>
                   <td>{r.runner_coach}</td>
+                  <td>{r.series ?? "-"}</td>
                   <td>{r.mvp}</td>
                 </tr>
               ))}
             </tbody>
           </table>
+        </section>
+      ) : null}
+
+      {mainNav === "league_news" ? (
+        <section className="card">
+          <h2>League News</h2>
+          {leagueNews.length === 0 ? (
+            <p>No league news posted yet.</p>
+          ) : (
+            <div className="results">
+              {leagueNews.map((n, idx) => (
+                <div key={`league-news-${idx}-${n.headline}`} className="line">
+                  S{n.season} {n.day > 0 ? `D${n.day}` : "Offseason"} | {n.headline}{n.details ? ` - ${n.details}` : ""}
+                </div>
+              ))}
+            </div>
+          )}
         </section>
       ) : null}
 
@@ -1448,6 +1562,9 @@ export default function App() {
                     <div className="banner-team">{b.team.toUpperCase()}</div>
                     {bannersData?.logo_url ? <img className="banner-logo" src={logoUrl(bannersData.logo_url)} alt={b.team} /> : null}
                     <div className="banner-title">{b.title.toUpperCase()}</div>
+                    {b.kind === "retired_number" ? (
+                      <div className="muted small">#{b.number ?? "-"} {b.player ?? ""}</div>
+                    ) : null}
                     <div className="banner-season">SEASON {b.season}</div>
                   </div>
                 </div>
@@ -1521,10 +1638,106 @@ export default function App() {
         </section>
       ) : null}
 
+      {mainNav === "contracts" ? (
+        <section className="card">
+          <div className="section-head">
+            <h2>{contractsData?.team ?? (meta?.user_team ?? "Team")} Contracts</h2>
+          </div>
+          <p className="muted">
+            Cap: ${contractsData?.cap_used?.toFixed(2) ?? "0.00"}M / ${contractsData?.cap_limit?.toFixed(2) ?? "0.00"}M
+            {" | "}Space: ${contractsData?.cap_space?.toFixed(2) ?? "0.00"}M
+            {" | "}Active: {contractsData?.active_count ?? 0}/{contractsData?.max_active ?? 22}
+          </p>
+          <div className="split">
+            <div>
+              <h3>Active Roster Contracts</h3>
+              <table className="banded">
+                <thead>
+                  <tr><th>Player</th><th>Pos</th><th>Age</th><th>Years</th><th>AAV</th><th>Type</th><th>RFA</th></tr>
+                </thead>
+                <tbody>
+                  {(contractsData?.active ?? []).map((r) => (
+                    <tr key={`ctr-a-${r.name}`} className="row-clickable" onClick={() => void openPlayerCareer(r.team, r.name)}>
+                      <td>{r.name}</td>
+                      <td>{r.position}</td>
+                      <td>{r.age}</td>
+                      <td>{r.years_left}</td>
+                      <td>${r.cap_hit.toFixed(2)}M</td>
+                      <td>{r.contract_type}</td>
+                      <td>{r.is_rfa ? "Y" : "N"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div>
+              <h3>Minor League Contracts</h3>
+              <table className="banded">
+                <thead>
+                  <tr><th>Player</th><th>Pos</th><th>Age</th><th>Years</th><th>AAV</th><th>Type</th><th>RFA</th></tr>
+                </thead>
+                <tbody>
+                  {(contractsData?.minors ?? []).map((r) => (
+                    <tr key={`ctr-m-${r.name}`} className="row-clickable" onClick={() => void openPlayerCareer(r.team, r.name)}>
+                      <td>{r.name}</td>
+                      <td>{r.position}</td>
+                      <td>{r.age}</td>
+                      <td>{r.years_left}</td>
+                      <td>${r.cap_hit.toFixed(2)}M</td>
+                      <td>{r.contract_type}</td>
+                      <td>{r.is_rfa ? "Y" : "N"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
+      {mainNav === "free_agents" ? (
+        <section className="card">
+          <div className="section-head">
+            <h2>Free Agents</h2>
+          </div>
+          <p className="muted">
+            Team: {freeAgentsData?.team ?? (meta?.user_team ?? "-")}
+            {" | "}Cap: ${freeAgentsData?.cap_used?.toFixed(2) ?? "0.00"}M / ${freeAgentsData?.cap_limit?.toFixed(2) ?? "0.00"}M
+            {" | "}Space: ${freeAgentsData?.cap_space?.toFixed(2) ?? "0.00"}M
+          </p>
+          <table className="banded">
+            <thead>
+              <tr><th>Player</th><th>Pos</th><th>Age</th><th>OVR</th><th>Ask</th><th>Type</th><th>RFA</th><th>Action</th></tr>
+            </thead>
+            <tbody>
+              {(freeAgentsData?.rows ?? []).map((r) => (
+                <tr key={`fa-${r.name}`}>
+                  <td>{r.name}</td>
+                  <td>{r.position}</td>
+                  <td>{r.age}</td>
+                  <td>{r.overall.toFixed(2)}</td>
+                  <td>{r.ask_years}y @ ${r.ask_cap_hit.toFixed(2)}M</td>
+                  <td>{r.contract_type}</td>
+                  <td>{r.is_rfa ? "Y" : "N"}</td>
+                  <td>
+                    <button onClick={() => void signFreeAgent(r.name, r.ask_years, r.ask_cap_hit)}>
+                      Sign
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      ) : null}
+
       {mainNav === "callups" ? (
         <section className="card">
           <h2>{callupsData?.team ?? (meta?.user_team ?? "Team")} Call Ups</h2>
-          <p className="muted">Manage promotions from minors and send-downs when injuries hit.</p>
+          <p className="muted">
+            Manage promotions from minors and send-downs when injuries hit.
+            {" | "}Active roster: {callupsData?.active_count ?? 0}/{callupsData?.max_active ?? 22}
+          </p>
           <h3>Injury List</h3>
           {(callupsData?.injuries ?? []).length === 0 ? (
             <p className="muted">No active injuries.</p>
@@ -1934,24 +2147,39 @@ export default function App() {
                 ) : null}
               </div>
               <div>
-                {(homePanel.news ?? []).length > 0 ? (
-                  <div>
-                    <h3>League News</h3>
-                    <div className="results">
-                      {(homePanel.news ?? []).slice(0, 30).map((n, idx) => (
-                        <div key={`news-${idx}-${n.headline}`} className="line">
-                          S{n.season} {n.day > 0 ? `D${n.day}` : "Offseason"} | {n.headline}{n.details ? ` - ${n.details}` : ""}
-                        </div>
+                <div>
+                  <h3>GM Inbox</h3>
+                  {inboxEvents.length === 0 ? (
+                    <p className="muted">No unresolved inbox events right now.</p>
+                  ) : (
+                    <div className="score-list">
+                      {inboxEvents.slice(0, 4).map((ev) => (
+                        <article key={`home-inbox-${ev.id}`} className="score-card">
+                          <h3>{ev.title}</h3>
+                          <div className="muted small">S{ev.season} D{ev.day} | Expires D{ev.expires_day}</div>
+                          <p>{ev.details}</p>
+                          <div className="inline-controls">
+                            {ev.options.map((opt) => (
+                              <span key={`${ev.id}-${opt.id}`} title={opt.description}>
+                                <button onClick={() => void resolveInboxEvent(ev.id, opt.id)}>
+                                  {opt.label}
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        </article>
                       ))}
                     </div>
-                  </div>
-                ) : null}
-                <h3>Coach</h3>
-                <button onClick={() => setShowCoachDetails((v) => !v)}>
-                  {homePanel.coach.name}
-                </button>
+                  )}
+                </div>
+                <div>
+                  <h3>Coach</h3>
+                  <button onClick={() => setShowCoachDetails((v) => !v)}>
+                    {homePanel.coach.name}
+                  </button>
+                </div>
                 {showCoachDetails ? (
-                  <>
+                  <div>
                     <p className="muted">Record {homePanel.coach.record ?? "-"} | Rating {homePanel.coach.rating.toFixed(2)} | Style {homePanel.coach.style}</p>
                     <p className="muted">
                       Off {homePanel.coach.offense.toFixed(2)} | Def {homePanel.coach.defense.toFixed(2)} | Goalie Dev {homePanel.coach.goalie_dev.toFixed(2)}
@@ -1962,7 +2190,7 @@ export default function App() {
                     <p className="muted">
                       Game Mode: {homePanel.control.game_mode.toUpperCase()}
                     </p>
-                  </>
+                  </div>
                 ) : null}
                 <h3>Fan Sentiment</h3>
                 <p className="muted">

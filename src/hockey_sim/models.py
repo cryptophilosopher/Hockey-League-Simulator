@@ -59,6 +59,10 @@ class Player:
     prospect_boom_chance: float = 0.08
     prospect_bust_chance: float = 0.10
     prospect_resolved: bool = True
+    contract_years_left: int = 2
+    cap_hit: float = 1.2
+    contract_type: str = "entry"
+    is_rfa: bool = True
     career_seasons: list[dict[str, object]] = field(default_factory=list)
 
     @property
@@ -111,6 +115,7 @@ class Team:
     coach_honeymoon_games_remaining: int = 0
     captain_name: str = ""
     assistant_names: list[str] = field(default_factory=list)
+    retired_numbers: list[dict[str, object]] = field(default_factory=list)
 
     MAX_ROSTER_SIZE: ClassVar[int] = 22
     MIN_MINOR_ROSTER_SIZE: ClassVar[int] = 10

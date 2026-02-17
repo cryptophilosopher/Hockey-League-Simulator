@@ -18,6 +18,7 @@ from .models import (
     ALL_LINE_SLOTS,
     GOALIE_POSITIONS,
     Player,
+    Team,
     TeamRecord,
 )
 
@@ -58,6 +59,13 @@ class InboxResolveSelection(BaseModel):
 class CallupSelection(BaseModel):
     team_name: str | None = None
     player_name: str
+
+
+class FreeAgentSignSelection(BaseModel):
+    team_name: str | None = None
+    player_name: str
+    years: int | None = None
+    cap_hit: float | None = None
 
 
 class SimService:
@@ -270,6 +278,20 @@ class SimService:
                 elif choice_id == "steady":
                     prospect.prospect_potential = min(0.99, prospect.prospect_potential + 0.03)
 
+        if team is not None and event_type == "roster_limit":
+            if choice_id.startswith("demote::"):
+                demote_name = choice_id.split("::", 1)[1].strip()
+                if demote_name:
+                    ok = self.simulator.demote_roster_player(team.name, demote_name)
+                    if ok:
+                        self._add_news(
+                            kind="transaction",
+                            headline=f"Transaction: {team.name} assigned {demote_name}",
+                            details=f"{demote_name} was sent to minors after IR return roster decision.",
+                            team=team.name,
+                            day=self.simulator.current_day,
+                        )
+
         event["resolved"] = True
         event["resolution"] = {
             "choice_id": choice_id,
@@ -388,6 +410,95 @@ class SimService:
 
         self._save_runtime_state()
 
+    def _active_roster_count(self, team_name: str) -> int:
+        team = self.simulator.get_team(team_name)
+        if team is None:
+            return 0
+        return len([p for p in team.roster if not p.is_injured])
+
+    def _demotion_candidates(self, team_name: str) -> list[Player]:
+        team = self.simulator.get_team(team_name)
+        if team is None:
+            return []
+        healthy = [p for p in team.roster if not p.is_injured]
+        if not healthy:
+            return []
+        # Keep minimum positional structure and demote lower-value depth first.
+        healthy_forwards = len([p for p in healthy if p.position in {"C", "LW", "RW"}])
+        healthy_defense = len([p for p in healthy if p.position == "D"])
+        healthy_goalies = len([p for p in healthy if p.position == "G"])
+
+        def can_demote(p: Player) -> bool:
+            if p.position == "G":
+                return healthy_goalies > 2
+            if p.position == "D":
+                return healthy_defense > 6
+            return healthy_forwards > 12
+
+        candidates = [p for p in healthy if can_demote(p)]
+        if not candidates:
+            candidates = healthy
+        candidates.sort(
+            key=lambda p: (
+                self._player_overall(p),
+                -p.age,
+                p.name,
+            )
+        )
+        return candidates
+
+    def _queue_roster_limit_decisions(self, day_num: int, returned_players: list[str]) -> None:
+        team = self._user_team()
+        if team is None:
+            return
+        active_count = self._active_roster_count(team.name)
+        overflow = max(0, active_count - Team.MAX_ROSTER_SIZE)
+        # Handle one decision at a time to keep inbox choices clear.
+        if overflow <= 0:
+            return
+        unresolved_existing = any(
+            (not bool(ev.get("resolved", False)))
+            and str(ev.get("type", "")) == "roster_limit"
+            and int(ev.get("season", 0)) == int(self.simulator.season_number)
+            for ev in self.inbox_events
+        )
+        if unresolved_existing:
+            return
+        candidates = self._demotion_candidates(team.name)[:8]
+        if not candidates:
+            return
+        options = [
+            {
+                "id": f"demote::{p.name}",
+                "label": f"Send {p.name}",
+                "description": f"Assign {p.name} ({p.position}) to minors to restore {Team.MAX_ROSTER_SIZE}-player active limit.",
+            }
+            for p in candidates
+        ]
+        returned_label = ", ".join(returned_players[:3]) if returned_players else "an injured player"
+        details = (
+            f"Active roster is {active_count}/{Team.MAX_ROSTER_SIZE} after {returned_label} returned from IR. "
+            "Choose a player to send down."
+        )
+        self._add_inbox_event(
+            day_num=day_num,
+            event_type="roster_limit",
+            title="Roster Limit Decision",
+            details=details,
+            options=options,
+            payload={"returned_players": returned_players},
+            expires_in_days=3,
+            auto_choice_id=options[0]["id"],
+        )
+
+    def _projected_active_count_next_day(self, team_name: str) -> int:
+        team = self.simulator.get_team(team_name)
+        if team is None:
+            return 0
+        active_now = len([p for p in team.roster if not p.is_injured])
+        returning_next = len([p for p in team.roster if int(p.injured_games_remaining) == 1])
+        return active_now + returning_next
+
     def inbox(self, include_resolved: bool = False, limit: int = 60) -> list[dict[str, Any]]:
         rows = [dict(row) for row in self.inbox_events]
         if not include_resolved:
@@ -500,6 +611,82 @@ class SimService:
                         season=display_season,
                         day=0,
                     )
+
+    def _retired_number_news_from_offseason(
+        self,
+        completed_season: int,
+        retired_numbers: list[dict[str, object]],
+    ) -> None:
+        if not isinstance(retired_numbers, list):
+            return
+        display_season = completed_season + 1
+        for row in retired_numbers:
+            if not isinstance(row, dict):
+                continue
+            team = str(row.get("team", "")).strip()
+            player = str(row.get("player", "")).strip()
+            number = row.get("number")
+            if not team or not player or number is None:
+                continue
+            try:
+                jersey_no = int(number)
+            except (TypeError, ValueError):
+                continue
+            self._add_news(
+                kind="retired_number",
+                headline=f"Retired Number: {team} retired #{jersey_no}",
+                details=f"Honoring {player}.",
+                team=team,
+                season=display_season,
+                day=0,
+            )
+
+    def _free_agency_news_from_offseason(
+        self,
+        completed_season: int,
+        free_agency: dict[str, object],
+    ) -> None:
+        if not isinstance(free_agency, dict):
+            return
+        display_season = completed_season + 1
+        re_signings = free_agency.get("re_signings", [])
+        signings = free_agency.get("signings", [])
+        if isinstance(re_signings, list):
+            for row in re_signings[:120]:
+                if not isinstance(row, dict):
+                    continue
+                team = str(row.get("team", "")).strip()
+                player = str(row.get("player", "")).strip()
+                years = int(row.get("years", 0) or 0)
+                cap_hit = float(row.get("cap_hit", 0.0) or 0.0)
+                if not team or not player or years <= 0:
+                    continue
+                self._add_news(
+                    kind="contract",
+                    headline=f"Extension: {team} re-signed {player}",
+                    details=f"{years} years, ${cap_hit:.2f}M AAV.",
+                    team=team,
+                    season=display_season,
+                    day=0,
+                )
+        if isinstance(signings, list):
+            for row in signings[:160]:
+                if not isinstance(row, dict):
+                    continue
+                team = str(row.get("team", "")).strip()
+                player = str(row.get("player", "")).strip()
+                years = int(row.get("years", 0) or 0)
+                cap_hit = float(row.get("cap_hit", 0.0) or 0.0)
+                if not team or not player or years <= 0:
+                    continue
+                self._add_news(
+                    kind="contract",
+                    headline=f"Free Agency: {team} signed {player}",
+                    details=f"{years} years, ${cap_hit:.2f}M AAV.",
+                    team=team,
+                    season=display_season,
+                    day=0,
+                )
 
     def news(self, limit: int = 80) -> list[dict[str, Any]]:
         return [dict(row) for row in self.news_feed[: max(1, min(limit, 250))]]
@@ -1796,6 +1983,118 @@ class SimService:
             "groups": groups,
         }
 
+    def contracts(self, team_name: str | None = None) -> dict[str, Any]:
+        chosen = (team_name or self.user_team_name).strip()
+        if not chosen:
+            raise HTTPException(status_code=400, detail="No team selected")
+        team = self.simulator.get_team(chosen)
+        if team is None:
+            raise HTTPException(status_code=404, detail="Team not found")
+
+        cap_limit = float(self.simulator._team_cap_limit(team))
+        cap_used = float(self.simulator._team_cap_used(team))
+        active_count = len([p for p in team.roster if not p.is_injured])
+
+        def _row(p: Player) -> dict[str, Any]:
+            return {
+                "team": team.name,
+                "name": p.name,
+                "position": p.position,
+                "age": p.age,
+                "years_left": int(getattr(p, "contract_years_left", 0)),
+                "cap_hit": round(float(getattr(p, "cap_hit", 0.0)), 2),
+                "contract_type": str(getattr(p, "contract_type", "entry")),
+                "is_rfa": bool(getattr(p, "is_rfa", False)),
+                "injured": p.is_injured,
+                "injured_games_remaining": p.injured_games_remaining,
+            }
+
+        active_rows = [_row(p) for p in sorted(team.roster, key=lambda x: (-float(getattr(x, "cap_hit", 0.0)), x.position, x.name))]
+        minor_rows = [_row(p) for p in sorted(team.minor_roster, key=lambda x: (-float(getattr(x, "cap_hit", 0.0)), x.position, x.name))]
+        return {
+            "team": team.name,
+            "cap_limit": round(cap_limit, 2),
+            "cap_used": round(cap_used, 2),
+            "cap_space": round(cap_limit - cap_used, 2),
+            "active_count": active_count,
+            "max_active": Team.MAX_ROSTER_SIZE,
+            "active": active_rows,
+            "minors": minor_rows,
+        }
+
+    def free_agents(self, team_name: str | None = None) -> dict[str, Any]:
+        chosen = (team_name or self.user_team_name).strip()
+        if not chosen:
+            raise HTTPException(status_code=400, detail="No team selected")
+        team = self.simulator.get_team(chosen)
+        if team is None:
+            raise HTTPException(status_code=404, detail="Team not found")
+        cap_limit = float(self.simulator._team_cap_limit(team))
+        cap_used = float(self.simulator._team_cap_used(team))
+        rows: list[dict[str, Any]] = []
+        for p in self.simulator.get_free_agents():
+            ask_years, ask_cap, ask_type, ask_rfa = self.simulator._estimate_contract_offer(p)
+            rows.append(
+                {
+                    "name": p.name,
+                    "position": p.position,
+                    "age": p.age,
+                    "overall": round(self._player_overall(p), 2),
+                    "ask_years": int(ask_years),
+                    "ask_cap_hit": round(float(ask_cap), 2),
+                    "contract_type": ask_type,
+                    "is_rfa": bool(ask_rfa),
+                }
+            )
+        return {
+            "team": team.name,
+            "cap_limit": round(cap_limit, 2),
+            "cap_used": round(cap_used, 2),
+            "cap_space": round(cap_limit - cap_used, 2),
+            "rows": rows[:220],
+        }
+
+    def sign_free_agent(
+        self,
+        team_name: str | None,
+        player_name: str,
+        years: int | None = None,
+        cap_hit: float | None = None,
+    ) -> dict[str, Any]:
+        chosen = (team_name or self.user_team_name).strip()
+        if not chosen:
+            raise HTTPException(status_code=400, detail="No team selected")
+        if chosen != self.user_team_name:
+            raise HTTPException(status_code=403, detail="Can only sign for your team")
+        result = self.simulator.sign_free_agent(
+            team_name=chosen,
+            player_name=player_name,
+            years=years,
+            cap_hit=cap_hit,
+        )
+        if not bool(result.get("ok", False)):
+            reason = str(result.get("reason", "failed"))
+            if reason == "roster_full":
+                raise HTTPException(status_code=400, detail="Roster is full. Demote or place player before signing.")
+            if reason == "cap_space":
+                raise HTTPException(status_code=400, detail="Not enough cap space for this deal.")
+            if reason == "player_not_found":
+                raise HTTPException(status_code=404, detail="Free agent not found.")
+            raise HTTPException(status_code=400, detail=f"Could not sign player: {reason}")
+
+        signed_player = str(result.get("player", player_name))
+        deal_years = int(result.get("years", years or 1))
+        deal_cap = float(result.get("cap_hit", cap_hit or 0.0))
+        self._add_news(
+            kind="contract",
+            headline=f"Free Agency: {chosen} signed {signed_player}",
+            details=f"{deal_years} years, ${deal_cap:.2f}M AAV.",
+            team=chosen,
+            day=self.simulator.current_day,
+        )
+        self._save_runtime_state()
+        return {"ok": True, "result": result}
+
     def set_draft_focus(self, team_name: str | None, focus: str) -> dict[str, Any]:
         chosen = (team_name or self.user_team_name).strip()
         if not chosen:
@@ -1973,6 +2272,8 @@ class SimService:
 
         return {
             "team": team.name,
+            "active_count": len([p for p in team.roster if not p.is_injured]),
+            "max_active": Team.MAX_ROSTER_SIZE,
             "injuries": injuries,
             "roster": roster_rows,
             "minors": minor_rows,
@@ -1986,7 +2287,12 @@ class SimService:
             raise HTTPException(status_code=403, detail="Can only manage call ups for your team")
         ok = self.simulator.promote_minor_player(chosen, player_name)
         if not ok:
-            raise HTTPException(status_code=400, detail="Unable to call up player")
+            team = self.simulator.get_team(chosen)
+            active_count = len([p for p in team.roster if not p.is_injured]) if team is not None else 0
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unable to call up player. Active roster is {active_count}/{Team.MAX_ROSTER_SIZE}; send someone down first if needed.",
+            )
         self._add_news(
             kind="transaction",
             headline=f"Transaction: {chosen} recalled {player_name}",
@@ -2431,7 +2737,7 @@ class SimService:
             )
 
         banners: list[dict[str, Any]] = []
-        seen: set[tuple[int, str]] = set()
+        seen: set[tuple[int, str, str]] = set()
         for season in self.simulator.season_history:
             if not isinstance(season, dict):
                 continue
@@ -2445,7 +2751,7 @@ class SimService:
                 continue
 
             def _add_banner(kind: str, title: str) -> None:
-                key = (season_no, kind)
+                key = (season_no, kind, title)
                 if key in seen:
                     return
                 seen.add(key)
@@ -2493,6 +2799,36 @@ class SimService:
                             _add_banner("conference", f"{conference_label} Champions")
                             break
 
+        retired_numbers = getattr(team, "retired_numbers", [])
+        if isinstance(retired_numbers, list):
+            for row in retired_numbers:
+                if not isinstance(row, dict):
+                    continue
+                number = row.get("number")
+                player = str(row.get("player", "")).strip()
+                if number is None:
+                    continue
+                try:
+                    jersey_no = int(number)
+                except (TypeError, ValueError):
+                    continue
+                season_no = int(row.get("season", 0))
+                title = f"Number {jersey_no} Retired"
+                key = (season_no, "retired_number", title)
+                if key in seen:
+                    continue
+                seen.add(key)
+                banners.append(
+                    {
+                        "season": season_no,
+                        "kind": "retired_number",
+                        "title": title,
+                        "team": selected_team,
+                        "number": jersey_no,
+                        "player": player,
+                    }
+                )
+
         banners.sort(key=lambda r: int(r.get("season", 0)), reverse=True)
         return {
             "team": selected_team,
@@ -2513,6 +2849,7 @@ class SimService:
             winner = self._season_champion(season)
             playoffs = season.get("playoffs", {})
             runner_up = ""
+            cup_series = "-"
             if isinstance(playoffs, dict):
                 rounds = playoffs.get("rounds", [])
                 if isinstance(rounds, list):
@@ -2525,6 +2862,13 @@ class SimService:
                         if isinstance(series_rows, list) and series_rows:
                             s0 = series_rows[0] if isinstance(series_rows[0], dict) else {}
                             runner_up = str(s0.get("loser", "")).strip()
+                            try:
+                                ww = int(s0.get("winner_wins", 0) or 0)
+                                lw = int(s0.get("loser_wins", 0) or 0)
+                                if ww > 0:
+                                    cup_series = f"{ww}-{lw}"
+                            except (TypeError, ValueError):
+                                cup_series = "-"
                             if not runner_up:
                                 high = str(s0.get("higher_seed", "")).strip()
                                 low = str(s0.get("lower_seed", "")).strip()
@@ -2576,6 +2920,7 @@ class SimService:
                     "runner_logo_url": f"/api/team-logo/{self._team_slug(runner_up)}" if runner_up else "",
                     "runner_captain": runner_captain,
                     "runner_coach": runner_coach,
+                    "series": cup_series,
                     "mvp": mvp_label,
                 }
             )
@@ -2698,9 +3043,37 @@ class SimService:
         if not self.user_team_name:
             raise HTTPException(status_code=400, detail="No user team selected")
 
+        # Legacy cleanup: roster-limit inbox flow was replaced by direct sim-time validation.
+        pre_len = len(self.inbox_events)
+        self.inbox_events = [
+            ev
+            for ev in self.inbox_events
+            if str(ev.get("type", "")) != "roster_limit"
+        ]
+        if len(self.inbox_events) != pre_len:
+            self._save_runtime_state()
+
+        projected_active = self._projected_active_count_next_day(self.user_team_name)
+        if projected_active > Team.MAX_ROSTER_SIZE:
+            now_active = self._active_roster_count(self.user_team_name)
+            returns = projected_active - now_active
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Roster non-compliant for next game day: projected active roster is "
+                    f"{projected_active}/{Team.MAX_ROSTER_SIZE} (about {returns} player(s) returning from IR). "
+                    "Use Call Ups to send player(s) down before simming."
+                ),
+            )
+
         if not self.simulator.is_complete():
             day_num = self.simulator.current_day
             self._expire_inbox_events(day_num=day_num)
+            user_team_before = self._user_team()
+            injury_before = {
+                p.name: int(p.injured_games_remaining)
+                for p in [*(user_team_before.roster if user_team_before is not None else []), *(user_team_before.minor_roster if user_team_before is not None else [])]
+            }
             roster_before = self._capture_roster_state()
             results = self.simulator.simulate_next_day(
                 user_team_name=self.user_team_name,
@@ -2708,6 +3081,14 @@ class SimService:
                 use_user_lines=self.override_coach_for_lines,
                 use_user_strategy=self.override_coach_for_strategy,
             )
+            user_team_after = self._user_team()
+            returned_players: list[str] = []
+            if user_team_after is not None:
+                after_pool = [*user_team_after.roster, *user_team_after.minor_roster]
+                for p in after_pool:
+                    prev_left = int(injury_before.get(p.name, 0))
+                    if prev_left > 0 and int(p.injured_games_remaining) <= 0:
+                        returned_players.append(p.name)
             self._injury_news_from_results(day_num=day_num, results=results)
             self._log_auto_roster_transactions(before=roster_before, day_num=day_num)
             serialized = self._serialize_games(results)
@@ -2784,6 +3165,12 @@ class SimService:
         drafted_details = offseason.get("drafted_details", {})
         if isinstance(drafted_details, dict):
             self._draft_news_from_offseason(completed_season=completed, drafted_details=drafted_details)
+        retired_numbers = offseason.get("retired_numbers", [])
+        if isinstance(retired_numbers, list):
+            self._retired_number_news_from_offseason(completed_season=completed, retired_numbers=retired_numbers)
+        free_agency = offseason.get("free_agency", {})
+        if isinstance(free_agency, dict):
+            self._free_agency_news_from_offseason(completed_season=completed, free_agency=free_agency)
         self._save_runtime_state()
         return {
             "phase": "offseason",
@@ -3292,6 +3679,29 @@ def callups_demote(payload: CallupSelection) -> dict[str, Any]:
 def roster(team: str | None = None) -> dict[str, Any]:
     with service._lock:
         return service.roster(team_name=team)
+
+
+@app.get("/api/contracts")
+def contracts(team: str | None = None) -> dict[str, Any]:
+    with service._lock:
+        return service.contracts(team_name=team)
+
+
+@app.get("/api/free-agents")
+def free_agents(team: str | None = None) -> dict[str, Any]:
+    with service._lock:
+        return service.free_agents(team_name=team)
+
+
+@app.post("/api/free-agents/sign")
+def sign_free_agent(payload: FreeAgentSignSelection) -> dict[str, Any]:
+    with service._lock:
+        return service.sign_free_agent(
+            team_name=payload.team_name,
+            player_name=payload.player_name,
+            years=payload.years,
+            cap_hit=payload.cap_hit,
+        )
 
 
 @app.get("/api/lines")
