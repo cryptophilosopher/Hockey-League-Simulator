@@ -48,6 +48,7 @@ type StandingRow = {
   diff: number;
   l10: string;
   strk: string;
+  clinch?: string[];
 };
 
 type WildCardRow = {
@@ -218,8 +219,8 @@ type FranchisePayload = {
     assists: Array<{ name: string; value: number; status: string }>;
     goalie_wins: Array<{ name: string; value: number; status: string }>;
   };
-  retired?: Array<{ season: number; entry: string }>;
-  draft_picks?: Array<{ season: number; name: string; position: string; country?: string; country_code?: string; flag?: string; round: number; overall: number }>;
+  retired?: Array<{ season: number; entry: string; name?: string; team?: string }>;
+  draft_picks?: Array<{ season: number; team?: string; name: string; position: string; country?: string; country_code?: string; flag?: string; round: number; overall: number }>;
 };
 
 type AdvanceResponse = {
@@ -470,7 +471,7 @@ type LinesPayload = {
   }>;
   candidates: Array<{ name: string; pos: string; flag?: string }>;
   extra_players?: Array<{ name: string; pos: string; flag?: string }>;
-  injuries?: Array<{ name: string; pos: string; flag?: string; games_remaining: number; injury_status?: string }>;
+  injuries?: Array<{ name: string; pos: string; flag?: string; games_remaining: number; injury_type?: string; injury_status?: string }>;
 };
 
 type MinorPlayerRow = {
@@ -702,6 +703,7 @@ export default function App() {
   const [inboxEvents, setInboxEvents] = useState<InboxEvent[]>([]);
   const [transactions, setTransactions] = useState<TransactionRow[]>([]);
   const [transactionFilter, setTransactionFilter] = useState<TransactionFilter>("all");
+  const [transactionSeason, setTransactionSeason] = useState<string>("all");
   const [contractsData, setContractsData] = useState<ContractsPayload | null>(null);
   const [freeAgentsData, setFreeAgentsData] = useState<FreeAgentsPayload | null>(null);
   const [leagueNews, setLeagueNews] = useState<TransactionRow[]>([]);
@@ -749,9 +751,28 @@ export default function App() {
 
   const isActiveRosterFull = (callupsData?.active_count ?? 0) >= (callupsData?.max_active ?? 22);
 
+  const transactionSeasons = useMemo(() => {
+    const seasons = new Set<number>();
+    for (const t of transactions) {
+      if (Number.isFinite(t.season)) seasons.add(t.season);
+    }
+    return Array.from(seasons).sort((a, b) => b - a);
+  }, [transactions]);
+
+  useEffect(() => {
+    if (transactionSeason === "all") return;
+    const wanted = Number(transactionSeason);
+    if (!transactionSeasons.includes(wanted)) {
+      setTransactionSeason("all");
+    }
+  }, [transactionSeason, transactionSeasons]);
+
   const filteredTransactions = useMemo(() => {
-    if (transactionFilter === "all") return transactions;
-    return transactions.filter((t) => {
+    const seasonFiltered = transactionSeason === "all"
+      ? transactions
+      : transactions.filter((t) => t.season === Number(transactionSeason));
+    if (transactionFilter === "all") return seasonFiltered;
+    return seasonFiltered.filter((t) => {
       const text = `${t.kind} ${t.headline} ${t.details}`.toLowerCase();
       if (transactionFilter === "trades") return text.includes("trade");
       if (transactionFilter === "callups") {
@@ -772,7 +793,7 @@ export default function App() {
       }
       return true;
     });
-  }, [transactions, transactionFilter]);
+  }, [transactions, transactionFilter, transactionSeason]);
 
   function trendArrow(trend?: string): string {
     if (trend === "Rising") return "\u25B2";
@@ -800,10 +821,10 @@ export default function App() {
 
   function injuryStatusKey(status?: string, injured?: boolean): "dtd" | "ir" | "ltir" | "season" | "none" {
     const s = (status ?? "").trim().toUpperCase();
+    if (s.includes("DTD")) return "dtd";
     if (!injured) return "none";
     if (s.includes("SEASON")) return "season";
     if (s.includes("LTIR")) return "ltir";
-    if (s.includes("DTD")) return "dtd";
     return "ir";
   }
 
@@ -1094,6 +1115,18 @@ export default function App() {
       body: JSON.stringify({ assignments: lineAssignments }),
     });
     await loadLines();
+    await loadHome();
+  }
+
+  async function autoSetBestLines() {
+    if (!meta?.user_team) return;
+    const payload = await fetchJson<LinesPayload>("/lines/auto", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ team_name: meta.user_team }),
+    });
+    setLinesData(payload);
+    setLineAssignments(payload.assignments ?? {});
     await loadHome();
   }
 
@@ -1388,6 +1421,7 @@ export default function App() {
                   </select>
                 </div>
               </div>
+              <p className="muted small">Clinch: X playoffs | Y division | Z conference | P best league record</p>
               {standingsMode === "league" ? (
                 <StandingsTable rows={rows} />
               ) : (
@@ -1565,6 +1599,14 @@ export default function App() {
                 formatValue={(v) => `${v}`}
                 onPick={(g) => void openPlayerCareer(g.team, g.name)}
               />
+              <LeaderBlock
+                title="Shutouts"
+                valueLabel="SO"
+                rows={goalies}
+                getValue={(g) => g.so}
+                formatValue={(v) => `${v}`}
+                onPick={(g) => void openPlayerCareer(g.team, g.name)}
+              />
             </div>
           </div>
         </section>
@@ -1591,18 +1633,18 @@ export default function App() {
               </div>
             ))}
           </div>
-          <div className="split">
-            <div><h3>Skaters</h3><table className="banded"><thead><tr><th>Player</th><th>Pos</th><th>GP</th><th>G</th><th>A</th><th>P</th><th>+/-</th><th>PIM</th><th>TOI/G</th><th>PPG</th><th>PPA</th><th>SHG</th><th>SHA</th><th>S</th><th>S%</th><th>Out</th></tr></thead><tbody>
+          <div className="split team-stats-split">
+            <div><h3>Skaters</h3><table className="banded skaters-table"><thead><tr><th>Player</th><th>Pos</th><th>GP</th><th>G</th><th>A</th><th>P</th><th>+/-</th><th>PIM</th><th>TOI/G</th><th>PPG</th><th>PPA</th><th>SHG</th><th>SHA</th><th>S</th><th>S%</th><th>Out</th></tr></thead><tbody>
               {players.map((p) => (
                 <tr key={`${p.team}-${p.name}`} className="row-clickable" onClick={() => void openPlayerCareer(p.team, p.name)}>
-                  <td>{playerLabel(p.name, p.jersey_number)}</td><td>{p.position}</td><td>{p.gp}</td><td>{p.g}</td><td>{p.a}</td><td>{p.p}</td><td>{p.plus_minus}</td><td>{p.pim}</td><td>{p.toi_g.toFixed(1)}</td><td>{p.ppg}</td><td>{p.ppa}</td><td>{p.shg}</td><td>{p.sha}</td><td>{p.shots}</td><td>{p.shot_pct.toFixed(1)}</td><td>{p.injured ? <span className="neg">{p.injured_games_remaining ?? 0}</span> : "-"}</td>
+                  <td className="name-cell nowrap">{renderInjuryChip(p.injury_status, p.injured)}{playerLabel(p.name, p.jersey_number)}</td><td>{p.position}</td><td>{p.gp}</td><td>{p.g}</td><td>{p.a}</td><td>{p.p}</td><td>{p.plus_minus}</td><td>{p.pim}</td><td>{p.toi_g.toFixed(1)}</td><td>{p.ppg}</td><td>{p.ppa}</td><td>{p.shg}</td><td>{p.sha}</td><td>{p.shots}</td><td>{p.shot_pct.toFixed(1)}</td><td>{(p.injured || (p.injury_status ?? "").toUpperCase().includes("DTD")) ? <span className="neg">{p.injured_games_remaining ?? 0}</span> : "-"}</td>
                 </tr>
               ))}
             </tbody></table></div>
-            <div><h3>Goalies</h3><table className="banded"><thead><tr><th>Goalie</th><th>GP</th><th>W</th><th>L</th><th>OTL</th><th>SO</th><th>GAA</th><th>SV%</th><th>Out</th></tr></thead><tbody>
+            <div><h3>Goalies</h3><table className="banded goalies-table"><thead><tr><th>Goalie</th><th>GP</th><th>W</th><th>L</th><th>OTL</th><th>SO</th><th>GAA</th><th>SV%</th><th>Out</th></tr></thead><tbody>
               {goalies.map((g) => (
                 <tr key={`${g.team}-${g.name}`} className="row-clickable" onClick={() => void openPlayerCareer(g.team, g.name)}>
-                  <td>{playerLabel(g.name, g.jersey_number)}</td><td>{g.gp}</td><td>{g.w}</td><td>{g.l}</td><td>{g.otl}</td><td>{g.so}</td><td>{g.gaa.toFixed(2)}</td><td>{g.sv_pct.toFixed(3)}</td><td>{g.injured ? <span className="neg">{g.injured_games_remaining ?? 0}</span> : "-"}</td>
+                  <td className="name-cell nowrap">{renderInjuryChip(g.injury_status, g.injured)}{playerLabel(g.name, g.jersey_number)}</td><td>{g.gp}</td><td>{g.w}</td><td>{g.l}</td><td>{g.otl}</td><td>{g.so}</td><td>{g.gaa.toFixed(2)}</td><td>{g.sv_pct.toFixed(3)}</td><td>{(g.injured || (g.injury_status ?? "").toUpperCase().includes("DTD")) ? <span className="neg">{g.injured_games_remaining ?? 0}</span> : "-"}</td>
                 </tr>
               ))}
             </tbody></table></div>
@@ -1763,6 +1805,18 @@ export default function App() {
         <section className="card">
           <div className="section-head">
             <h2>{meta?.user_team ?? "Team"} Transactions</h2>
+            <label>
+              Season{" "}
+              <select
+                value={transactionSeason}
+                onChange={(e) => setTransactionSeason(e.target.value)}
+              >
+                <option value="all">All</option>
+                {transactionSeasons.map((s) => (
+                  <option key={`tx-season-${s}`} value={String(s)}>S{s}</option>
+                ))}
+              </select>
+            </label>
           </div>
           <nav className="tabs">
             {[
@@ -2047,6 +2101,9 @@ export default function App() {
                 teamLogos={meta?.team_logos}
                 showCommentary={false}
                 showTeamLabels={false}
+                emphasizePlayoffSeries={true}
+                seriesLineTop={true}
+                omitSeriesRound={true}
               />
             ))}
           </div>
@@ -2062,12 +2119,11 @@ export default function App() {
           <p className="muted">
             Position Penalty: {(linesData?.position_penalty ?? 0).toFixed(3)} | {linesData?.override_coach_for_lines ? "Manual Lines Enabled" : "Coach Controls Lines"}
           </p>
-          {linesData?.override_coach_for_lines ? (
-            <div className="inline-controls">
-              <button onClick={() => void saveLines()} disabled={!linesData}>Save Lines</button>
-              <button onClick={() => void loadLines()} disabled={!linesData}>Reset To Current</button>
-            </div>
-          ) : null}
+          <div className="inline-controls">
+            {linesData?.override_coach_for_lines ? <button onClick={() => void saveLines()} disabled={!linesData}>Save Lines</button> : null}
+            <button onClick={() => void autoSetBestLines()} disabled={!linesData}>Auto-Set Best Lines</button>
+            {linesData?.override_coach_for_lines ? <button onClick={() => void loadLines()} disabled={!linesData}>Reset To Current</button> : null}
+          </div>
           <h3>Line Combinations</h3>
           <table>
             <thead>
@@ -2149,14 +2205,14 @@ export default function App() {
           {(linesData?.injuries ?? []).length > 0 ? (
             <table>
               <thead>
-                <tr><th>Player</th><th>Pos</th><th>Status</th><th>Out (Games)</th></tr>
+                <tr><th>Player</th><th>Pos</th><th>Type</th><th>Out (Games)</th></tr>
               </thead>
               <tbody>
                 {(linesData?.injuries ?? []).map((inj) => (
                   <tr key={`inj-${inj.name}`}>
-                    <td>{inj.name}</td>
+                    <td className="name-cell nowrap">{renderInjuryChip(inj.injury_status, true)}{inj.name}</td>
                     <td>{inj.pos}</td>
-                    <td>{renderInjuryChip(inj.injury_status, true)}</td>
+                    <td>{inj.injury_type ?? "-"}</td>
                     <td>{inj.games_remaining}</td>
                   </tr>
                 ))}
@@ -2214,8 +2270,8 @@ export default function App() {
                     <thead><tr><th>Season</th><th>Player</th><th>Pos</th><th>Pick</th></tr></thead>
                     <tbody>
                       {(franchise.draft_picks ?? []).slice(0, 30).map((d, idx) => (
-                        <tr key={`d-${idx}-${d.season}-${d.name}`}>
-                          <td>{d.season}</td><td>{d.name}</td><td>{d.position}</td><td>R{d.round} #{d.overall}</td>
+                        <tr key={`d-${idx}-${d.season}-${d.name}`} className="row-clickable" onClick={() => void openPlayerCareer(d.team ?? (meta?.user_team ?? ""), d.name)}>
+                          <td>{d.season}</td><td><span className="text-link">{d.name}</span></td><td>{d.position}</td><td>R{d.round} #{d.overall}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -2227,8 +2283,8 @@ export default function App() {
                     <thead><tr><th>Season</th><th>Player</th></tr></thead>
                     <tbody>
                       {(franchise.retired ?? []).slice(0, 30).map((r, idx) => (
-                        <tr key={`r-${idx}-${r.season}-${r.entry}`}>
-                          <td>{r.season}</td><td>{r.entry}</td>
+                        <tr key={`r-${idx}-${r.season}-${r.entry}`} className={r.name ? "row-clickable" : ""} onClick={() => (r.name ? void openPlayerCareer(r.team ?? (meta?.user_team ?? ""), r.name) : undefined)}>
+                          <td>{r.season}</td><td>{r.name ? <span className="text-link">{r.entry}</span> : r.entry}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -2242,6 +2298,8 @@ export default function App() {
 
       {mainNav === "home" ? (
         <section className="card">
+          <div className="home-header">
+            <div>
           <h2>
             {homePanel?.team ?? meta?.user_team ?? "Team"} Home
             <span className="cup-badges">
@@ -2254,6 +2312,30 @@ export default function App() {
             {" | "}
             {homePanel?.playoffs?.active ? "Playoffs" : "Regular Season"}
           </p>
+            </div>
+            <div className="home-sentiments">
+              <div className="home-sentiment-card">
+                <h3>Fan Sentiment</h3>
+                <p className="muted">
+                  <span>{moodFace(homePanel?.fan_sentiment?.mood)} </span>
+                  {homePanel?.fan_sentiment?.score?.toFixed(1) ?? "-"} / 100 ({homePanel?.fan_sentiment?.mood ?? "Unknown"}){" "}
+                  <span className={homePanel?.fan_sentiment?.trend === "Rising" ? "pos" : homePanel?.fan_sentiment?.trend === "Falling" ? "neg" : ""}>
+                    {trendArrow(homePanel?.fan_sentiment?.trend)} {homePanel?.fan_sentiment?.trend ?? "Flat"}
+                  </span>
+                </p>
+              </div>
+              <div className="home-sentiment-card">
+                <h3>Locker Room</h3>
+                <p className="muted">
+                  <span>{moodFace(homePanel?.locker_room?.mood)} </span>
+                  {homePanel?.locker_room?.score?.toFixed(1) ?? "-"} / 100 ({homePanel?.locker_room?.mood ?? "Unknown"}){" "}
+                  <span className={homePanel?.locker_room?.trend === "Rising" ? "pos" : homePanel?.locker_room?.trend === "Falling" ? "neg" : ""}>
+                    {trendArrow(homePanel?.locker_room?.trend)} {homePanel?.locker_room?.trend ?? "Flat"}
+                  </span>
+                </p>
+              </div>
+            </div>
+          </div>
           {homePanel?.top_story ? (
             <div className="score-card">
               <h3>Top Story</h3>
@@ -2275,16 +2357,13 @@ export default function App() {
                       game={(homePanel.playoffs?.active && homePanel.playoffs.latest_team_game) ? homePanel.playoffs.latest_team_game : homePanel.latest_game!}
                       teamLogos={meta?.team_logos}
                       showTeamLabels={false}
+                      emphasizePlayoffSeries={Boolean(homePanel.playoffs?.active && homePanel.playoffs.latest_team_game)}
+                      seriesLineTop={Boolean(homePanel.playoffs?.active && homePanel.playoffs.latest_team_game)}
                     />
                     <p className="muted">
                       {(homePanel.playoffs?.active && homePanel.playoffs.latest_team_game) ? (
                         <>
                           Playoff Day {homePanel.playoffs.latest_team_game_day ?? "-"} / {homePanel.playoffs.total_days ?? "-"}
-                          {homePanel.playoffs.latest_team_game.round ? ` | ${homePanel.playoffs.latest_team_game.round}` : ""}
-                          {homePanel.playoffs.latest_team_game.game_number ? ` | Game ${homePanel.playoffs.latest_team_game.game_number}` : ""}
-                          {homePanel.playoffs.latest_team_game.series_higher_seed && homePanel.playoffs.latest_team_game.series_lower_seed
-                            ? ` | Series ${homePanel.playoffs.latest_team_game.series_higher_seed} ${homePanel.playoffs.latest_team_game.series_high_wins ?? 0}-${homePanel.playoffs.latest_team_game.series_low_wins ?? 0} ${homePanel.playoffs.latest_team_game.series_lower_seed}`
-                            : ""}
                         </>
                       ) : (
                         <>
@@ -2389,24 +2468,6 @@ export default function App() {
                     </p>
                   </div>
                 ) : null}
-                <h3>Fan Sentiment</h3>
-                <p className="muted">
-                  <span>{moodFace(homePanel.fan_sentiment?.mood)} </span>
-                  {homePanel.fan_sentiment?.score?.toFixed(1) ?? "-"} / 100 ({homePanel.fan_sentiment?.mood ?? "Unknown"}){" "}
-                  <span className={homePanel.fan_sentiment?.trend === "Rising" ? "pos" : homePanel.fan_sentiment?.trend === "Falling" ? "neg" : ""}>
-                    {trendArrow(homePanel.fan_sentiment?.trend)} {homePanel.fan_sentiment?.trend ?? "Flat"}
-                  </span>
-                </p>
-                <p className="muted">{homePanel.fan_sentiment?.summary ?? ""}</p>
-                <h3>Locker Room</h3>
-                <p className="muted">
-                  <span>{moodFace(homePanel.locker_room?.mood)} </span>
-                  {homePanel.locker_room?.score?.toFixed(1) ?? "-"} / 100 ({homePanel.locker_room?.mood ?? "Unknown"}){" "}
-                  <span className={homePanel.locker_room?.trend === "Rising" ? "pos" : homePanel.locker_room?.trend === "Falling" ? "neg" : ""}>
-                    {trendArrow(homePanel.locker_room?.trend)} {homePanel.locker_room?.trend ?? "Flat"}
-                  </span>
-                </p>
-                <p className="muted">{homePanel.locker_room?.summary ?? ""}</p>
               </div>
             </div>
           ) : (
@@ -2535,6 +2596,9 @@ function GameSummaryCard({
   teamLogos,
   showCommentary = true,
   showTeamLabels = true,
+  emphasizePlayoffSeries = false,
+  seriesLineTop = false,
+  omitSeriesRound = false,
 }: {
   game: {
     home: string;
@@ -2563,26 +2627,42 @@ function GameSummaryCard({
   teamLogos?: Record<string, string>;
   showCommentary?: boolean;
   showTeamLabels?: boolean;
+  emphasizePlayoffSeries?: boolean;
+  seriesLineTop?: boolean;
+  omitSeriesRound?: boolean;
 }) {
+  const awayScore = typeof game.away_goals === "number" ? ` ${game.away_goals}` : "";
+  const homeScore = typeof game.home_goals === "number" ? ` ${game.home_goals}` : "";
+  const roundLabel = omitSeriesRound ? "" : (game.round ?? "Playoffs");
+  const playoffSeriesLine = game.series_higher_seed && game.series_lower_seed
+    ? `${roundLabel ? `${roundLabel} | ` : ""}${game.game_number ? `Game ${game.game_number} | ` : ""}Series: ${game.series_higher_seed} ${game.series_high_wins ?? 0}-${game.series_low_wins ?? 0} ${game.series_lower_seed}`
+    : "";
   return (
     <div className="score-card">
       <div className="score-main">
+        {seriesLineTop && playoffSeriesLine ? <div className={emphasizePlayoffSeries ? "series-line-bold" : "muted small"}>{playoffSeriesLine}</div> : null}
         <div className="score-teams">
           <div className="score-team-row">
             {teamLogos?.[game.away] ? <img className="mini-logo" src={logoUrl(teamLogos[game.away])} alt={game.away} /> : null}
-            <span>{showTeamLabels ? <strong>Away:</strong> : null} {game.away} {game.away_record ? `(${game.away_record})` : ""}</span>
+            <div className="score-team-text">
+              <div className="score-team-name">
+                {showTeamLabels ? <strong>Away:</strong> : null} {game.away}<strong>{awayScore}</strong>
+              </div>
+              {game.away_record ? <div className="score-team-record">{game.away_record}</div> : null}
+            </div>
           </div>
           <div className="score-team-row">
             {teamLogos?.[game.home] ? <img className="mini-logo" src={logoUrl(teamLogos[game.home])} alt={game.home} /> : null}
-            <span>{showTeamLabels ? <strong>Home:</strong> : null} {game.home} {game.home_record ? `(${game.home_record})` : ""}</span>
+            <div className="score-team-text">
+              <div className="score-team-name">
+                {showTeamLabels ? <strong>Home:</strong> : null} {game.home}<strong>{homeScore}</strong>
+              </div>
+              {game.home_record ? <div className="score-team-record">{game.home_record}</div> : null}
+            </div>
           </div>
         </div>
         <div className="muted small">Goalies: {game.away_goalie || "-"} {game.away_goalie_sv || ""} | {game.home_goalie || "-"} {game.home_goalie_sv || ""}</div>
-        {game.series_higher_seed && game.series_lower_seed ? (
-          <div className="muted small">
-            {game.round ?? "Playoffs"}{game.game_number ? ` | Game ${game.game_number}` : ""} | Series: {game.series_higher_seed} {game.series_high_wins ?? 0}-{game.series_low_wins ?? 0} {game.series_lower_seed}
-          </div>
-        ) : null}
+        {!seriesLineTop && playoffSeriesLine ? <div className={emphasizePlayoffSeries ? "series-line-bold" : "muted small"}>{playoffSeriesLine}</div> : null}
         <div className="muted small">
           Attendance: {typeof game.attendance === "number" ? game.attendance.toLocaleString() : "-"}
           {typeof game.arena_capacity === "number" ? `/${game.arena_capacity.toLocaleString()}` : ""}
@@ -2637,7 +2717,17 @@ function StandingsTable({ rows }: { rows: StandingRow[] }) {
       <tbody>
         {rows.map((r) => (
           <tr key={`${r.team}-${r.conference}-${r.division}`}>
-            <td className="team-cell"><img className="table-logo" src={logoUrl(r.logo_url)} alt={r.team} /><span>{r.team}</span></td>
+            <td className="team-cell">
+              <img className="table-logo" src={logoUrl(r.logo_url)} alt={r.team} />
+              <span>{r.team}</span>
+              {(r.clinch ?? []).length > 0 ? (
+                <span className="clinch-tags" title={`Clinch: ${(r.clinch ?? []).join(", ").toUpperCase()}`}>
+                  {(r.clinch ?? []).map((tag) => (
+                    <span key={`${r.team}-clinch-${tag}`} className="clinch-tag">{tag.toUpperCase()}</span>
+                  ))}
+                </span>
+              ) : null}
+            </td>
             <td>{r.gp}</td><td>{r.w}</td><td>{r.l}</td><td>{r.otl}</td><td>{r.pts}</td><td>{r.home}</td><td>{r.away}</td><td>{r.gf}</td><td>{r.ga}</td>
             <td className={r.diff > 0 ? "pos" : r.diff < 0 ? "neg" : ""}>{r.diff > 0 ? `+${r.diff}` : r.diff}</td>
             <td>{r.l10}</td><td>{r.strk}</td>
@@ -2665,13 +2755,14 @@ function LeaderBlock<T extends { name: string; team: string; flag?: string }>({
   sortAsc?: boolean;
   onPick: (row: T) => void;
 }) {
+  const [showAll, setShowAll] = useState(false);
   const sorted = [...rows].sort((a, b) => (sortAsc ? getValue(a) - getValue(b) : getValue(b) - getValue(a)));
-  const topRows = sorted.slice(0, 5);
+  const visibleRows = showAll ? sorted : sorted.slice(0, 5);
 
   function rankAt(idx: number): number {
     if (idx <= 0) return 1;
-    const cur = getValue(topRows[idx]);
-    const prev = getValue(topRows[idx - 1]);
+    const cur = getValue(visibleRows[idx]);
+    const prev = getValue(visibleRows[idx - 1]);
     if (cur === prev) return rankAt(idx - 1);
     return idx + 1;
   }
@@ -2680,10 +2771,17 @@ function LeaderBlock<T extends { name: string; team: string; flag?: string }>({
     <section className="leader-block">
       <header className="leader-head">
         <span>{title}</span>
+        {rows.length > 5 ? (
+          <button className="leader-head-toggle" onClick={() => setShowAll((v) => !v)}>
+            {showAll ? "Show Top 5" : "Complete Leaders"}
+          </button>
+        ) : (
+          <span />
+        )}
         <span>{valueLabel}</span>
       </header>
-      <div>
-        {topRows.map((row, idx) => (
+      <div className={showAll ? "leader-list full" : "leader-list"}>
+        {visibleRows.map((row, idx) => (
           <div key={`${row.team}-${row.name}-${title}`} className="leader-row row-clickable" onClick={() => onPick(row)}>
             <span className="leader-rank">{rankAt(idx)}</span>
             <span className="leader-player">{row.name} <small>{row.team.slice(0, 3).toUpperCase()}</small></span>
@@ -2691,7 +2789,6 @@ function LeaderBlock<T extends { name: string; team: string; flag?: string }>({
           </div>
         ))}
       </div>
-      <div className="leader-link">Complete Leaders</div>
     </section>
   );
 }

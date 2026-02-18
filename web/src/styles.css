@@ -78,8 +78,8 @@ body {
 
 .actions {
   display: flex;
-  gap: 8px;
-  align-items: center;
+  gap: 10px;
+  align-items: stretch;
   flex-wrap: wrap;
   justify-content: flex-end;
 }
@@ -88,8 +88,10 @@ body {
 .actions button {
   border: 1px solid #aabfda;
   border-radius: 10px;
-  padding: 8px 10px;
+  min-height: 38px;
+  padding: 8px 12px;
   font-size: 14px;
+  line-height: 1.15;
 }
 
 .actions button {
@@ -108,9 +110,16 @@ body {
 .inline-check {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  justify-content: center;
+  gap: 6px;
   font-size: 13px;
   color: #274665;
+  min-height: 38px;
+  padding: 7px 10px;
+  border: 1px solid #aabfda;
+  border-radius: 10px;
+  background: #f8fbff;
+  white-space: nowrap;
 }
 
 .actions button:disabled {
@@ -220,6 +229,36 @@ body {
   display: inline-flex;
   gap: 4px;
   font-size: 18px;
+}
+
+.home-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: start;
+}
+
+.home-sentiments {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(210px, 1fr));
+  gap: 8px;
+}
+
+.home-sentiment-card {
+  border: 1px solid #d7e4f4;
+  border-radius: 10px;
+  background: #f8fbff;
+  padding: 8px 10px;
+}
+
+.home-sentiment-card h3 {
+  margin: 0 0 4px;
+  font-size: 14px;
+}
+
+.home-sentiment-card .muted {
+  margin: 0;
+  font-size: 13px;
 }
 
 .section-head {
@@ -384,12 +423,32 @@ table.banded tbody tr.row-clickable:hover td {
 
 .leader-head {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr auto auto;
   font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;
   color: #4a5b70;
   padding: 4px 4px 6px;
+  align-items: center;
+  gap: 8px;
+}
+
+.leader-head-toggle {
+  background: transparent;
+  border: 0;
+  color: #1d5eaa;
+  font-weight: 700;
+  text-transform: none;
+  cursor: pointer;
+  padding: 0;
+  font-size: 12px;
+  justify-self: center;
+}
+
+.leader-list.full {
+  max-height: 360px;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 .leader-row {
@@ -427,6 +486,10 @@ table.banded tbody tr.row-clickable:hover td {
   color: #1d5eaa;
   font-weight: 600;
   padding: 6px 0 2px;
+  background: transparent;
+  border: 0;
+  width: 100%;
+  cursor: pointer;
 }
 
 .muted {
@@ -558,6 +621,12 @@ table.banded tbody tr.row-clickable:hover td {
   gap: 6px;
 }
 
+.series-line-bold {
+  font-size: 13px;
+  font-weight: 700;
+  color: #15365a;
+}
+
 .period-table {
   width: 100%;
   border-collapse: collapse;
@@ -619,21 +688,38 @@ table.banded tbody tr.row-clickable:hover td {
 
 .score-teams {
   display: grid;
-  gap: 6px;
+  gap: 5px;
   font-weight: 600;
 }
 
 .score-team-row {
-  display: inline-flex;
-  align-items: center;
+  display: flex;
+  align-items: flex-start;
   gap: 8px;
 }
 
+.score-team-text {
+  display: grid;
+  gap: 1px;
+}
+
+.score-team-name {
+  line-height: 1.15;
+}
+
+.score-team-record {
+  font-size: 11px;
+  color: #5a7293;
+  font-weight: 500;
+  line-height: 1.1;
+}
+
 .mini-logo {
-  width: 22px;
-  height: 22px;
+  width: 28px;
+  height: 28px;
   object-fit: contain;
   flex: 0 0 auto;
+  margin-top: 1px;
 }
 
 .score-values {
@@ -689,6 +775,35 @@ table.banded tbody tr.row-clickable:hover td {
   border: 1px solid #cfc6f6;
 }
 
+.name-cell {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+
+.skaters-table th:first-child,
+.skaters-table td:first-child {
+  min-width: 190px;
+}
+
+.goalies-table th:first-child,
+.goalies-table td:first-child {
+  min-width: 150px;
+}
+
+.team-stats-split {
+  grid-template-columns: minmax(0, 2.25fr) minmax(0, 1fr);
+  align-items: start;
+}
+
+.team-stats-split > div {
+  min-width: 0;
+}
+
 .text-link {
   color: #1d5eaa;
   text-decoration: none;
@@ -697,6 +812,29 @@ table.banded tbody tr.row-clickable:hover td {
 
 .text-link:hover {
   text-decoration: underline;
+}
+
+.clinch-tags {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 6px;
+}
+
+.clinch-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  border: 1px solid #93abd0;
+  background: #eef4ff;
+  color: #1f3f63;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
 }
 
 .banner-grid {
@@ -829,6 +967,12 @@ table.banded tbody tr.row-clickable:hover td {
 }
 
 @media (max-width: 1100px) {
+  .home-header {
+    grid-template-columns: 1fr;
+  }
+  .home-sentiments {
+    grid-template-columns: 1fr;
+  }
   .layout {
     grid-template-columns: 1fr;
   }

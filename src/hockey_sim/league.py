@@ -736,10 +736,18 @@ class LeagueSimulator:
                     player.birth_country_code = code
 
     def _migrate_team_branding(self) -> None:
+        branding: dict[str, tuple[str, str]] = {
+            "Timberwolves": ("#166534", "#d4af37"),
+            "Polar Caps": ("#0c2340", "#c0c0c0"),
+            "Silver Pines": ("#1f6f50", "#c0c0c0"),
+            "Harbor Kings": ("#5b2c83", "#d8c7a0"),
+            "Liberty Blades": ("#c1121f", "#1d4ed8"),
+            "Iron Rangers": ("#1f2937", "#c1121f"),
+        }
         for team in self.teams:
-            if team.name == "Iron Rangers":
-                team.primary_color = "#1f2937"
-                team.secondary_color = "#c1121f"
+            colors = branding.get(team.name)
+            if colors is not None:
+                team.primary_color, team.secondary_color = colors
 
     def _coach_matchup_preference(self, team: Team, opponent: Team) -> str:
         team_top = sorted([p.scoring_weight for p in team.active_skaters()], reverse=True)[:6]
@@ -1493,73 +1501,123 @@ class LeagueSimulator:
             team_record = self._records.get(team.name)
             team_goal_diff = float(team_record.goal_diff) if team_record is not None else 0.0
             for player in [*team.roster, *team.minor_roster]:
-                gp = max(1, int(player.games_played))
-                position = player.position
-                if position == "D":
-                    toi_per_game = 18.0 + player.defense * 1.55 + player.playmaking * 0.25
-                elif position == "G":
-                    toi_per_game = 0.0
-                else:
-                    toi_per_game = 11.2 + player.scoring_weight * 2.05 + player.defense * 0.35
-                toi_per_game = round(max(0.0, min(30.0, toi_per_game)), 1)
-
-                shot_rate = 1.15 + player.shooting * 0.68 + (0.18 if position in {"C", "LW", "RW"} else (-0.22 if position == "D" else -0.65))
-                shots = max(player.goals, int(round(gp * max(0.4, shot_rate))))
-                shot_pct = (player.goals / shots * 100.0) if shots > 0 else 0.0
-                pp_share = min(0.68, max(0.12, 0.26 + (player.playmaking + player.shooting - 5.2) * 0.07))
-                pp_points = min(player.points, int(round(player.points * pp_share)))
-                goal_share = player.goals / max(1, player.points)
-                ppg = min(player.goals, int(round(pp_points * goal_share * 0.92)))
-                ppa = max(0, pp_points - ppg)
-                sh_cap = max(0, player.points - pp_points)
-                sh_points = min(sh_cap, int(round(gp * max(0.0, 0.02 + player.defense * 0.03))))
-                shg = min(player.goals - ppg, max(0, int(round(sh_points * goal_share))))
-                sha = max(0, sh_points - shg)
-                plus_minus = int(round((player.points / gp - 0.55) * gp * 0.34 + team_goal_diff * 0.18))
-                pim = int(round(gp * (0.24 + player.physical * 0.40)))
-
-                entry = {
-                    "season": completed_season,
-                    "team": team.name,
-                    "age": player.age,
-                    "position": player.position,
-                    "birth_country": player.birth_country,
-                    "birth_country_code": player.birth_country_code,
-                    "gp": player.games_played,
-                    "g": player.goals,
-                    "a": player.assists,
-                    "p": player.points,
-                    "injuries": player.injuries,
-                    "games_missed": player.games_missed_injury,
-                    "goalie_gp": player.goalie_games,
-                    "goalie_w": player.goalie_wins,
-                    "goalie_l": player.goalie_losses,
-                    "goalie_otl": player.goalie_ot_losses,
-                    "goalie_so": player.goalie_shutouts,
-                    "plus_minus": plus_minus,
-                    "pim": pim,
-                    "toi_g": toi_per_game,
-                    "ppg": ppg,
-                    "ppa": ppa,
-                    "shg": shg,
-                    "sha": sha,
-                    "shots": shots,
-                    "shot_pct": round(shot_pct, 1),
-                    "gaa": round(player.gaa, 2),
-                    "sv_pct": round(player.save_pct, 3),
-                    "rating_shooting": round(player.shooting, 2),
-                    "rating_playmaking": round(player.playmaking, 2),
-                    "rating_defense": round(player.defense, 2),
-                    "rating_goaltending": round(player.goaltending, 2),
-                    "rating_physical": round(player.physical, 2),
-                    "rating_durability": round(player.durability, 2),
-                    "draft_season": player.draft_season,
-                    "draft_round": player.draft_round,
-                    "draft_overall": player.draft_overall,
-                    "draft_team": player.draft_team,
-                }
+                entry = self._build_career_season_entry(
+                    player=player,
+                    completed_season=completed_season,
+                    team_name=team.name,
+                    team_goal_diff=team_goal_diff,
+                )
                 player.career_seasons.append(entry)
                 self.career_history[player.player_id] = list(player.career_seasons)
+
+    def _build_career_season_entry(
+        self,
+        player: Player,
+        completed_season: int,
+        team_name: str,
+        team_goal_diff: float,
+    ) -> dict[str, object]:
+        gp = max(1, int(player.games_played))
+        position = player.position
+        if position == "D":
+            toi_per_game = 18.0 + player.defense * 1.55 + player.playmaking * 0.25
+        elif position == "G":
+            toi_per_game = 0.0
+        else:
+            toi_per_game = 11.2 + player.scoring_weight * 2.05 + player.defense * 0.35
+        toi_per_game = round(max(0.0, min(30.0, toi_per_game)), 1)
+
+        shot_rate = 1.15 + player.shooting * 0.68 + (0.18 if position in {"C", "LW", "RW"} else (-0.22 if position == "D" else -0.65))
+        shots = max(player.goals, int(round(gp * max(0.4, shot_rate))))
+        shot_pct = (player.goals / shots * 100.0) if shots > 0 else 0.0
+        pp_share = min(0.68, max(0.12, 0.26 + (player.playmaking + player.shooting - 5.2) * 0.07))
+        pp_points = min(player.points, int(round(player.points * pp_share)))
+        goal_share = player.goals / max(1, player.points)
+        ppg = min(player.goals, int(round(pp_points * goal_share * 0.92)))
+        ppa = max(0, pp_points - ppg)
+        sh_cap = max(0, player.points - pp_points)
+        sh_points = min(sh_cap, int(round(gp * max(0.0, 0.02 + player.defense * 0.03))))
+        shg = min(player.goals - ppg, max(0, int(round(sh_points * goal_share))))
+        sha = max(0, sh_points - shg)
+        plus_minus = int(round((player.points / gp - 0.55) * gp * 0.34 + team_goal_diff * 0.18))
+        pim = int(round(gp * (0.24 + player.physical * 0.40)))
+
+        return {
+            "season": completed_season,
+            "team": team_name,
+            "age": player.age,
+            "position": player.position,
+            "birth_country": player.birth_country,
+            "birth_country_code": player.birth_country_code,
+            "gp": player.games_played,
+            "g": player.goals,
+            "a": player.assists,
+            "p": player.points,
+            "injuries": player.injuries,
+            "games_missed": player.games_missed_injury,
+            "goalie_gp": player.goalie_games,
+            "goalie_w": player.goalie_wins,
+            "goalie_l": player.goalie_losses,
+            "goalie_otl": player.goalie_ot_losses,
+            "goalie_so": player.goalie_shutouts,
+            "plus_minus": plus_minus,
+            "pim": pim,
+            "toi_g": toi_per_game,
+            "ppg": ppg,
+            "ppa": ppa,
+            "shg": shg,
+            "sha": sha,
+            "shots": shots,
+            "shot_pct": round(shot_pct, 1),
+            "gaa": round(player.gaa, 2),
+            "sv_pct": round(player.save_pct, 3),
+            "rating_shooting": round(player.shooting, 2),
+            "rating_playmaking": round(player.playmaking, 2),
+            "rating_defense": round(player.defense, 2),
+            "rating_goaltending": round(player.goaltending, 2),
+            "rating_physical": round(player.physical, 2),
+            "rating_durability": round(player.durability, 2),
+            "draft_season": player.draft_season,
+            "draft_round": player.draft_round,
+            "draft_overall": player.draft_overall,
+            "draft_team": player.draft_team,
+        }
+
+    def snapshot_trade_season_split(self, player: Player, from_team_name: str) -> None:
+        played_any = (
+            int(player.games_played) > 0
+            or int(player.goalie_games) > 0
+            or int(player.goals) > 0
+            or int(player.assists) > 0
+            or int(player.goalie_wins) > 0
+            or int(player.games_missed_injury) > 0
+            or int(player.injuries) > 0
+        )
+        if not played_any:
+            return
+        team_record = self._records.get(from_team_name)
+        team_goal_diff = float(team_record.goal_diff) if team_record is not None else 0.0
+        entry = self._build_career_season_entry(
+            player=player,
+            completed_season=int(self.season_number),
+            team_name=from_team_name,
+            team_goal_diff=team_goal_diff,
+        )
+        player.career_seasons.append(entry)
+        self.career_history[player.player_id] = list(player.career_seasons)
+        player.games_played = 0
+        player.goals = 0
+        player.assists = 0
+        player.injuries = 0
+        player.games_missed_injury = 0
+        player.goalie_games = 0
+        player.goalie_wins = 0
+        player.goalie_losses = 0
+        player.goalie_ot_losses = 0
+        player.goalie_shutouts = 0
+        player.shots_against = 0
+        player.saves = 0
+        player.goals_against = 0
 
     def _clamp(self, value: float, low: float, high: float = 5.0) -> float:
         return min(high, max(low, value))
