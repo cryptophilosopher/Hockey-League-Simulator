@@ -24,9 +24,11 @@ A simple Python project to simulate a hockey league season.
 
 ## Quick start
 1. Create and activate a virtual environment.
-2. Install project in editable mode:
+2. Install runtime dependencies:
+   `py -3 -m pip install -r requirements.txt`
+3. Install project in editable mode:
    `py -3 -m pip install -e .`
-3. Run the simulator:
+4. Run the simulator:
    `py -3 -m hockey_sim`
 
 GUI controls:
@@ -47,8 +49,10 @@ Phase 1 web stack is now scaffolded:
 
 ### Run backend API
 1. Install/update dependencies:
+   `py -3 -m pip install -r requirements.txt`
+2. Install project in editable mode:
    `py -3 -m pip install -e .`
-2. Start API server:
+3. Start API server:
    `py -3 -m uvicorn hockey_sim.api:app --reload --host 127.0.0.1 --port 8000`
 
 ### Run frontend
@@ -67,6 +71,19 @@ Phase 1 web stack is now scaffolded:
 - Defensive strategy lowers injury probability.
 
 ## Run tests
-Install pytest and run:
-`py -3 -m pip install pytest`
-`py -3 -m pytest`
+1. Install dev dependencies:
+   `py -3 -m pip install -r requirements-dev.txt`
+2. Run fast smoke tests (recommended before commit):
+   `py -3 -m pytest -q -m smoke`
+3. Run full regression suite (recommended before push):
+   `py -3 -m pytest -q`
+
+## Daily commands (copy/paste)
+1. Backend:
+   `py -3 -m uvicorn hockey_sim.api:app --reload --host 127.0.0.1 --port 8000`
+2. Frontend:
+   `npm -C web run dev`
+3. Smoke tests:
+   `py -3 -m pytest -q -m smoke`
+4. Full tests:
+   `py -3 -m pytest -q`

@@ -271,6 +271,8 @@ body {
 .inline-controls {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
 }
 
 .inline-controls select {
@@ -285,6 +287,51 @@ body {
   padding: 6px 10px;
   background: #f2f7ff;
   cursor: pointer;
+}
+
+.trade-box {
+  margin: 10px 0 12px;
+  padding: 10px;
+  border: 1px solid #c9d8ec;
+  border-radius: 10px;
+  background: #f8fbff;
+}
+
+.trade-box h3 {
+  margin: 0 0 8px;
+}
+
+.trade-offer-eval {
+  margin-top: 8px;
+  border-top: 1px solid #d8e5f5;
+  padding-top: 8px;
+}
+
+.trade-offer-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.trade-compare-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+.trade-compare-card {
+  border: 1px solid #d4e0f0;
+  border-radius: 8px;
+  background: #fbfdff;
+  padding: 8px;
+}
+
+.trade-reasons {
+  margin: 6px 0 0 16px;
+  color: #4b6180;
+  font-size: 12px;
 }
 
 table {

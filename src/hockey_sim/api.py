@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import random
 from pathlib import Path
+import shutil
 from threading import Lock
 from typing import Any
 
@@ -68,9 +69,19 @@ class FreeAgentSignSelection(BaseModel):
     cap_hit: float | None = None
 
 
+class TradeProposalSelection(BaseModel):
+    team_name: str | None = None
+    partner_team: str
+    give_player: str
+    receive_player: str
+
+
 class SimService:
+    RUNTIME_SAVE_VERSION = 2
+
     def __init__(self) -> None:
         self.data_root = Path(__file__).resolve().parents[2]
+        self.runtime_last_load_error: str = ""
         self._init_fresh_state()
         self._load_runtime_state()
         self._lock = Lock()
@@ -102,61 +113,420 @@ class SimService:
             return
         try:
             raw = json.loads(self.runtime_state_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
+        except (json.JSONDecodeError, OSError) as exc:
+            self.runtime_last_load_error = f"Failed to load runtime state ({exc}); using defaults."
             return
         if not isinstance(raw, dict):
+            self.runtime_last_load_error = "Runtime state has invalid format; using defaults."
+            return
+        version = int(raw.get("save_version", 1) or 1)
+        if version > self.RUNTIME_SAVE_VERSION:
+            self.runtime_last_load_error = (
+                f"Unsupported runtime state version {version}; app supports up to {self.RUNTIME_SAVE_VERSION}."
+            )
+            return
+        payload = raw.get("runtime_state", raw)
+        if not isinstance(payload, dict):
+            self.runtime_last_load_error = "Runtime state payload is invalid; using defaults."
             return
 
-        daily = raw.get("daily_results", [])
-        news = raw.get("news_feed", [])
+        daily = payload.get("daily_results", [])
+        news = payload.get("news_feed", [])
         if isinstance(daily, list):
             self.daily_results = [row for row in daily if isinstance(row, dict)]
         if isinstance(news, list):
             self.news_feed = [row for row in news if isinstance(row, dict)]
 
-        team_name = raw.get("user_team_name")
+        team_name = payload.get("user_team_name")
         if isinstance(team_name, str) and team_name:
             self.user_team_name = team_name
-        strategy = raw.get("user_strategy")
+        strategy = payload.get("user_strategy")
         if isinstance(strategy, str) and strategy:
             self.user_strategy = strategy.lower()
-        mode = raw.get("game_mode")
+        mode = payload.get("game_mode")
         if isinstance(mode, str) and mode in {"gm", "coach", "both"}:
             self.game_mode = mode
-        self.override_coach_for_lines = bool(raw.get("override_coach_for_lines", self.override_coach_for_lines))
-        self.override_coach_for_strategy = bool(raw.get("override_coach_for_strategy", self.override_coach_for_strategy))
-        raw_inbox = raw.get("inbox_events", [])
+        self.override_coach_for_lines = bool(payload.get("override_coach_for_lines", self.override_coach_for_lines))
+        self.override_coach_for_strategy = bool(payload.get("override_coach_for_strategy", self.override_coach_for_strategy))
+        raw_inbox = payload.get("inbox_events", [])
         if isinstance(raw_inbox, list):
             self.inbox_events = [row for row in raw_inbox if isinstance(row, dict)]
         else:
             self.inbox_events = []
         try:
-            self.next_inbox_id = int(raw.get("next_inbox_id", 1))
+            self.next_inbox_id = int(payload.get("next_inbox_id", 1))
         except (TypeError, ValueError):
             self.next_inbox_id = 1
         self.next_inbox_id = max(1, self.next_inbox_id)
 
     def _save_runtime_state(self) -> None:
         payload = {
-            "user_team_name": self.user_team_name,
-            "user_strategy": self.user_strategy,
-            "override_coach_for_lines": self.override_coach_for_lines,
-            "override_coach_for_strategy": self.override_coach_for_strategy,
-            "game_mode": self.game_mode,
-            "daily_results": self.daily_results[-600:],
-            "news_feed": self.news_feed[:250],
-            "inbox_events": self.inbox_events[-300:],
-            "next_inbox_id": self.next_inbox_id,
+            "save_version": self.RUNTIME_SAVE_VERSION,
+            "runtime_state": {
+                "user_team_name": self.user_team_name,
+                "user_strategy": self.user_strategy,
+                "override_coach_for_lines": self.override_coach_for_lines,
+                "override_coach_for_strategy": self.override_coach_for_strategy,
+                "game_mode": self.game_mode,
+                "daily_results": self.daily_results[-600:],
+                "news_feed": self.news_feed[:250],
+                "inbox_events": self.inbox_events[-300:],
+                "next_inbox_id": self.next_inbox_id,
+            },
         }
         try:
-            self.runtime_state_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            self._write_json_with_backup(self.runtime_state_path, payload)
         except OSError:
             pass
+
+    def _write_json_with_backup(self, path: Path, payload: Any) -> None:
+        if path.exists():
+            backup = path.with_suffix(path.suffix + ".bak")
+            try:
+                shutil.copy2(path, backup)
+            except OSError:
+                pass
+        path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
     def _player_overall(self, player: Player) -> float:
         if player.position == "G":
             return player.goaltending * 0.72 + player.durability * 0.18 + player.defense * 0.10
         return player.shooting * 0.38 + player.playmaking * 0.32 + player.defense * 0.22 + player.physical * 0.08
+
+    def _team_point_pct(self, team_name: str) -> float:
+        rec = self.simulator._records.get(team_name)
+        if rec is None or rec.games_played <= 0:
+            return 0.5
+        return rec.point_pct
+
+    def _team_pos_strength(self, team: Team, position: str) -> tuple[float, int]:
+        group = [p for p in team.roster if p.position == position and not p.is_injured]
+        if not group:
+            return 0.0, 0
+        avg = sum(self._player_overall(p) for p in group) / len(group)
+        return avg, len(group)
+
+    def _trade_player_value(self, player: Player, receiving_team: Team) -> float:
+        base = self._player_overall(player)
+        age = max(17, min(42, int(player.age)))
+        if player.position == "G":
+            if age <= 23:
+                age_adj = 0.22
+            elif age <= 30:
+                age_adj = 0.12
+            elif age <= 35:
+                age_adj = -0.03
+            else:
+                age_adj = -0.18
+        else:
+            if age <= 21:
+                age_adj = 0.24
+            elif age <= 27:
+                age_adj = 0.11
+            elif age <= 31:
+                age_adj = 0.0
+            elif age <= 35:
+                age_adj = -0.12
+            else:
+                age_adj = -0.25
+
+        ask_years, ask_cap, _, _ = self.simulator._estimate_contract_offer(player)
+        cap_hit = float(getattr(player, "cap_hit", 1.2) or 1.2)
+        cost_efficiency = max(-0.35, min(0.35, ask_cap - cap_hit))
+        term_bonus = max(0.0, min(0.2, (int(getattr(player, "contract_years_left", 0) or 0) - 1) * 0.04))
+
+        pos_avg, pos_count = self._team_pos_strength(receiving_team, player.position)
+        if player.position == "G":
+            need_depth = 2
+        elif player.position == "D":
+            need_depth = 6
+        else:
+            need_depth = 12
+        shortage = max(0, need_depth - pos_count)
+        need_bonus = shortage * 0.08 + max(0.0, 2.9 - pos_avg) * 0.09
+
+        prospect_bonus = 0.0
+        if int(getattr(player, "seasons_to_nhl", 0) or 0) > 0:
+            potential = float(getattr(player, "prospect_potential", 0.5) or 0.5)
+            prospect_bonus = max(-0.05, min(0.28, (potential - 0.5) * 0.6))
+
+        injury_penalty = 0.0
+        if player.is_injured:
+            injury_penalty = min(0.35, int(player.injured_games_remaining) * 0.03)
+        elif getattr(player, "is_dtd", False):
+            injury_penalty = 0.06
+
+        return round(base + age_adj + cost_efficiency + term_bonus + need_bonus + prospect_bonus - injury_penalty, 3)
+
+    def _trade_acceptance_margin(self, team: Team) -> float:
+        pct = self._team_point_pct(team.name)
+        if pct >= 0.62:
+            return 0.06
+        if pct <= 0.44:
+            return -0.04
+        return 0.0
+
+    def _evaluate_one_for_one_trade(
+        self,
+        *,
+        acquiring_team: Team,
+        sending_player: Player,
+        receiving_player: Player,
+    ) -> dict[str, float]:
+        acquired_val = self._trade_player_value(receiving_player, acquiring_team)
+        sent_val = self._trade_player_value(sending_player, acquiring_team)
+        net = acquired_val - sent_val
+        return {
+            "acquired_value": round(acquired_val, 3),
+            "sent_value": round(sent_val, 3),
+            "net_value": round(net, 3),
+        }
+
+    def _is_trade_acceptable(self, team: Team, give_player: Player, receive_player: Player) -> tuple[bool, dict[str, float]]:
+        eval_row = self._evaluate_one_for_one_trade(
+            acquiring_team=team,
+            sending_player=give_player,
+            receiving_player=receive_player,
+        )
+        margin = self._trade_acceptance_margin(team)
+        min_net = -0.08 + margin
+        max_overpay = 0.95
+        net = float(eval_row["net_value"])
+        accept = net >= min_net and abs(net) <= max_overpay
+        eval_row["min_net"] = round(min_net, 3)
+        eval_row["accept_margin"] = round(margin, 3)
+        return accept, eval_row
+
+    def _trade_offer_insight(self, team: Team, partner: Team, give_player: Player, receive_player: Player) -> dict[str, Any]:
+        user_accept, user_eval = self._is_trade_acceptable(team, give_player, receive_player)
+        partner_accept, partner_eval = self._is_trade_acceptable(partner, receive_player, give_player)
+        user_net = float(user_eval.get("net_value", 0.0))
+        partner_net = float(partner_eval.get("net_value", 0.0))
+        partner_min = float(partner_eval.get("min_net", 0.0))
+        gap = partner_net - partner_min
+        accept_probability = max(0.05, min(0.95, 0.5 + gap * 0.9))
+        if user_net >= 0.22 and partner_accept:
+            verdict = "Good for us"
+        elif user_net >= 0.0 and partner_accept:
+            verdict = "Fair"
+        elif user_net < 0.0 and partner_accept:
+            verdict = "Costly for us"
+        else:
+            verdict = "Likely rejected"
+
+        reasons: list[str] = []
+        if receive_player.position != give_player.position:
+            reasons.append(f"Position swap: {give_player.position} -> {receive_player.position}.")
+        else:
+            reasons.append(f"Like-for-like at {give_player.position}.")
+        if receive_player.age < give_player.age:
+            reasons.append(f"You get younger by {give_player.age - receive_player.age} years.")
+        elif receive_player.age > give_player.age:
+            reasons.append(f"You get older by {receive_player.age - give_player.age} years.")
+        cap_delta = float(getattr(receive_player, "cap_hit", 0.0)) - float(getattr(give_player, "cap_hit", 0.0))
+        reasons.append(f"Cap impact next season: {cap_delta:+.2f}M.")
+        reasons.append(f"Model net: {team.name} {user_net:+.2f}, {partner.name} {partner_net:+.2f}.")
+        reasons.append(f"{partner.name} minimum acceptable net: {partner_min:+.2f}.")
+
+        return {
+            "user_accepts": user_accept,
+            "partner_accepts": partner_accept,
+            "user_eval": user_eval,
+            "partner_eval": partner_eval,
+            "accept_probability": round(accept_probability, 2),
+            "verdict": verdict,
+            "reasons": reasons[:5],
+            "comparison": {
+                "give": {
+                    "name": give_player.name,
+                    "position": give_player.position,
+                    "age": int(give_player.age),
+                    "overall": round(self._player_overall(give_player), 2),
+                    "cap_hit": round(float(getattr(give_player, "cap_hit", 0.0)), 2),
+                    "years_left": int(getattr(give_player, "contract_years_left", 0) or 0),
+                },
+                "receive": {
+                    "name": receive_player.name,
+                    "position": receive_player.position,
+                    "age": int(receive_player.age),
+                    "overall": round(self._player_overall(receive_player), 2),
+                    "cap_hit": round(float(getattr(receive_player, "cap_hit", 0.0)), 2),
+                    "years_left": int(getattr(receive_player, "contract_years_left", 0) or 0),
+                },
+                "delta": {
+                    "overall": round(self._player_overall(receive_player) - self._player_overall(give_player), 2),
+                    "age": int(receive_player.age) - int(give_player.age),
+                    "cap_hit": round(float(getattr(receive_player, "cap_hit", 0.0)) - float(getattr(give_player, "cap_hit", 0.0)), 2),
+                    "years_left": int(getattr(receive_player, "contract_years_left", 0) or 0) - int(getattr(give_player, "contract_years_left", 0) or 0),
+                },
+            },
+        }
+
+    def _counter_trade_offer(
+        self,
+        *,
+        team: Team,
+        partner: Team,
+        give_player: Player,
+        receive_player: Player,
+        counter_type: str,
+    ) -> tuple[Player, Player, dict[str, Any]] | None:
+        if counter_type == "counter_upgrade_return":
+            candidates = sorted(
+                [p for p in partner.roster if not p.is_injured and p.name != receive_player.name],
+                key=self._player_overall,
+                reverse=True,
+            )
+            for candidate in candidates:
+                if self._player_overall(candidate) <= self._player_overall(receive_player):
+                    continue
+                if candidate.position == "G":
+                    healthy_goalies = len([p for p in partner.roster if p.position == "G" and not p.is_injured])
+                    if healthy_goalies <= 1:
+                        continue
+                insight = self._trade_offer_insight(team, partner, give_player, candidate)
+                if bool(insight.get("partner_accepts", False)):
+                    return give_player, candidate, insight
+            return None
+
+        if counter_type == "counter_reduce_cost":
+            candidates = sorted(
+                [p for p in team.roster if not p.is_injured and p.name != give_player.name and p.position == give_player.position],
+                key=self._player_overall,
+            )
+            for candidate in candidates:
+                if self._player_overall(candidate) >= self._player_overall(give_player):
+                    continue
+                if candidate.position == "G":
+                    healthy_goalies = len([p for p in team.roster if p.position == "G" and not p.is_injured])
+                    if healthy_goalies <= 1:
+                        continue
+                insight = self._trade_offer_insight(team, partner, candidate, receive_player)
+                if bool(insight.get("partner_accepts", False)):
+                    return candidate, receive_player, insight
+            return None
+
+        return None
+
+    def _execute_one_for_one_trade(
+        self,
+        *,
+        team_a: Team,
+        team_b: Team,
+        team_a_player: Player,
+        team_b_player: Player,
+    ) -> None:
+        self.simulator.snapshot_trade_season_split(team_a_player, team_a.name)
+        self.simulator.snapshot_trade_season_split(team_b_player, team_b.name)
+        team_a.roster.remove(team_a_player)
+        team_b.roster.remove(team_b_player)
+        team_a_player.team_name = team_b.name
+        team_b_player.team_name = team_a.name
+        team_b.roster.append(team_a_player)
+        team_a.roster.append(team_b_player)
+        self.simulator.normalize_player_numbers()
+        team_a.set_default_lineup()
+        team_b.set_default_lineup()
+
+    def _eligible_trade_players(self, team: Team, *, outgoing: bool) -> list[Player]:
+        healthy = [p for p in team.roster if not p.is_injured]
+        if not healthy:
+            return []
+        healthy_goalies = len([p for p in healthy if p.position == "G"])
+        out: list[Player] = []
+        for player in healthy:
+            if player.position == "G" and healthy_goalies <= 1:
+                continue
+            out.append(player)
+        out.sort(key=self._player_overall, reverse=not outgoing)
+        return out
+
+    def _find_balanced_trade_offer(
+        self,
+        *,
+        requesting_team: Team,
+        partner_team: Team,
+    ) -> tuple[Player, Player, dict[str, float], dict[str, float]] | None:
+        give_pool = self._eligible_trade_players(requesting_team, outgoing=True)[:10]
+        receive_pool = self._eligible_trade_players(partner_team, outgoing=False)[:10]
+        if not give_pool or not receive_pool:
+            return None
+        best: tuple[Player, Player, dict[str, float], dict[str, float], float] | None = None
+        for give_player in give_pool:
+            for receive_player in receive_pool:
+                if give_player.name == receive_player.name:
+                    continue
+                req_accept, req_eval = self._is_trade_acceptable(requesting_team, give_player, receive_player)
+                if not req_accept:
+                    continue
+                part_accept, part_eval = self._is_trade_acceptable(partner_team, receive_player, give_player)
+                if not part_accept:
+                    continue
+                req_net = float(req_eval.get("net_value", 0.0))
+                part_net = float(part_eval.get("net_value", 0.0))
+                # Prefer deals both teams can defend as fair; slight bias toward improving weak teams.
+                fairness = -abs(req_net - part_net)
+                quality = req_net + part_net + fairness * 0.35
+                if best is None or quality > best[4]:
+                    best = (give_player, receive_player, req_eval, part_eval, quality)
+        if best is None:
+            return None
+        return best[0], best[1], best[2], best[3]
+
+    def _propose_user_trade(
+        self,
+        *,
+        user_team: Team,
+        partner_team: Team,
+        give_player_name: str,
+        receive_player_name: str,
+    ) -> dict[str, Any]:
+        give_player = next((p for p in user_team.roster if p.name == give_player_name), None)
+        receive_player = next((p for p in partner_team.roster if p.name == receive_player_name), None)
+        if give_player is None or receive_player is None:
+            return {"ok": False, "reason": "player_not_found"}
+        if give_player.is_injured or receive_player.is_injured:
+            return {"ok": False, "reason": "injured_player_in_trade"}
+        if give_player.position == "G":
+            healthy_goalies = len([p for p in user_team.roster if p.position == "G" and not p.is_injured])
+            if healthy_goalies <= 1:
+                return {"ok": False, "reason": "cannot_trade_last_goalie"}
+        if receive_player.position == "G":
+            healthy_goalies = len([p for p in partner_team.roster if p.position == "G" and not p.is_injured])
+            if healthy_goalies <= 1:
+                return {"ok": False, "reason": "partner_cannot_trade_last_goalie"}
+
+        user_accepts, user_eval = self._is_trade_acceptable(user_team, give_player, receive_player)
+        partner_accepts, partner_eval = self._is_trade_acceptable(partner_team, receive_player, give_player)
+        if not user_accepts:
+            return {"ok": False, "reason": "bad_user_offer", "user_eval": user_eval, "partner_eval": partner_eval}
+        if not partner_accepts:
+            return {"ok": False, "reason": "partner_rejected", "user_eval": user_eval, "partner_eval": partner_eval}
+
+        self._execute_one_for_one_trade(
+            team_a=user_team,
+            team_b=partner_team,
+            team_a_player=give_player,
+            team_b_player=receive_player,
+        )
+        self._add_news(
+            kind="trade",
+            headline=f"Trade: {user_team.name} acquired {receive_player.name} from {partner_team.name}",
+            details=f"{user_team.name} sent {give_player.name} to {partner_team.name}.",
+            team="",
+            day=self.simulator.current_day,
+        )
+        self._save_runtime_state()
+        self.simulator._save_state()
+        return {
+            "ok": True,
+            "team": user_team.name,
+            "partner_team": partner_team.name,
+            "give_player": give_player.name,
+            "receive_player": receive_player.name,
+            "user_eval": user_eval,
+            "partner_eval": partner_eval,
+        }
 
     def _user_team(self):
         if not self.user_team_name:
@@ -363,30 +733,73 @@ class SimService:
             partner_name = str(payload.get("partner_team", ""))
             give_name = str(payload.get("give_player", ""))
             receive_name = str(payload.get("receive_player", ""))
+            if choice_id in {"counter_upgrade_return", "counter_reduce_cost"} and partner_name and give_name and receive_name:
+                partner = self.simulator.get_team(partner_name)
+                if partner is not None:
+                    give_player = next((p for p in team.roster if p.name == give_name), None)
+                    recv_player = next((p for p in partner.roster if p.name == receive_name), None)
+                    if give_player is not None and recv_player is not None:
+                        counter = self._counter_trade_offer(
+                            team=team,
+                            partner=partner,
+                            give_player=give_player,
+                            receive_player=recv_player,
+                            counter_type=choice_id,
+                        )
+                        if counter is None:
+                            action_note = "Counter failed: no fair revised offer found."
+                        else:
+                            new_give, new_receive, insight = counter
+                            self._add_inbox_event(
+                                day_num=self.simulator.current_day,
+                                event_type="trade_offer",
+                                title=f"Counter Returned: {partner.name}",
+                                details=(
+                                    f"{partner.name} counters with {new_receive.name} for {new_give.name}. "
+                                    f"Model net for {team.name}: {float(insight.get('user_eval', {}).get('net_value', 0.0)):+.2f}"
+                                ),
+                                options=[
+                                    {"id": "accept_trade", "label": "Accept", "description": "Complete the revised trade."},
+                                    {"id": "reject_trade", "label": "Reject", "description": "Decline counter offer."},
+                                ],
+                                payload={
+                                    "partner_team": partner.name,
+                                    "give_player": new_give.name,
+                                    "receive_player": new_receive.name,
+                                    "insight": insight,
+                                },
+                                auto_choice_id="reject_trade",
+                            )
+                            action_note = f"Counter sent: {new_receive.name} for {new_give.name}."
             if choice_id == "accept_trade" and partner_name and give_name and receive_name:
                 partner = self.simulator.get_team(partner_name)
                 if partner is not None:
                     give_player = next((p for p in team.roster if p.name == give_name), None)
                     recv_player = next((p for p in partner.roster if p.name == receive_name), None)
                     if give_player is not None and recv_player is not None:
-                        self.simulator.snapshot_trade_season_split(give_player, team.name)
-                        self.simulator.snapshot_trade_season_split(recv_player, partner.name)
-                        team.roster.remove(give_player)
-                        partner.roster.remove(recv_player)
-                        give_player.team_name = partner.name
-                        recv_player.team_name = team.name
-                        partner.roster.append(give_player)
-                        team.roster.append(recv_player)
-                        self.simulator.normalize_player_numbers()
-                        team.set_default_lineup()
-                        partner.set_default_lineup()
-                        self._add_news(
-                            kind="trade",
-                            headline=f"Trade: {team.name} acquired {receive_name} from {partner.name}",
-                            details=f"{team.name} sent {give_name} to {partner.name}.",
-                            team="",
-                            day=self.simulator.current_day,
-                        )
+                        insight = self._trade_offer_insight(team, partner, give_player, recv_player)
+                        partner_accepts = bool(insight.get("partner_accepts", False))
+                        eval_partner = insight.get("partner_eval", {})
+                        if partner_accepts:
+                            self._execute_one_for_one_trade(
+                                team_a=team,
+                                team_b=partner,
+                                team_a_player=give_player,
+                                team_b_player=recv_player,
+                            )
+                            self._add_news(
+                                kind="trade",
+                                headline=f"Trade: {team.name} acquired {receive_name} from {partner.name}",
+                                details=f"{team.name} sent {give_name} to {partner.name}.",
+                                team="",
+                                day=self.simulator.current_day,
+                            )
+                            action_note = f"Trade accepted: {team.name} received {receive_name} for {give_name}."
+                        else:
+                            action_note = (
+                                f"Trade rejected by {partner.name}: value gap "
+                                f"{float(eval_partner.get('net_value', 0.0)):+.2f} vs required {float(eval_partner.get('min_net', 0.0)):+.2f}"
+                            )
 
         if team is not None and event_type == "waiver":
             if choice_id == "claim_waiver":
@@ -507,30 +920,38 @@ class SimService:
         # Secondary event lane: trade / waiver / prospect.
         roll = self.simulator._rng.random()
         if roll < 0.45 and len(self.simulator.teams) > 1:
-            partners = [t for t in self.simulator.teams if t.name != team.name and t.roster]
-            if partners and team.roster:
-                partner = self.simulator._rng.choice(partners)
-                give_pool = sorted([p for p in team.roster if p.position != "G"], key=self._player_overall)
-                recv_pool = sorted([p for p in partner.roster if p.position != "G"], key=self._player_overall, reverse=True)
-                if give_pool and recv_pool:
-                    give_player = give_pool[0]
-                    receive_player = recv_pool[0]
-                    self._add_inbox_event(
-                        day_num=day_num,
-                        event_type="trade_offer",
-                        title=f"Trade Offer: {partner.name}",
-                        details=f"{partner.name} offers {receive_player.name} for {give_player.name}.",
-                        options=[
-                            {"id": "accept_trade", "label": "Accept", "description": "Complete the 1-for-1 trade."},
-                            {"id": "reject_trade", "label": "Reject", "description": "Keep roster unchanged."},
-                        ],
-                        payload={
-                            "partner_team": partner.name,
-                            "give_player": give_player.name,
-                            "receive_player": receive_player.name,
-                        },
-                        auto_choice_id="reject_trade",
-                    )
+            partners = [t for t in self.simulator.teams if t.name != team.name]
+            self.simulator._rng.shuffle(partners)
+            for partner in partners:
+                offer = self._find_balanced_trade_offer(requesting_team=team, partner_team=partner)
+                if offer is None:
+                    continue
+                give_player, receive_player, _, _ = offer
+                insight = self._trade_offer_insight(team, partner, give_player, receive_player)
+                details = (
+                    f"{partner.name} offers {receive_player.name} for {give_player.name}. "
+                    f"Model net for {team.name}: {float(insight.get('user_eval', {}).get('net_value', 0.0)):+.2f}"
+                )
+                self._add_inbox_event(
+                    day_num=day_num,
+                    event_type="trade_offer",
+                    title=f"Trade Offer: {partner.name}",
+                    details=details,
+                    options=[
+                        {"id": "accept_trade", "label": "Accept", "description": "Complete the 1-for-1 trade."},
+                        {"id": "counter_upgrade_return", "label": "Counter: Better Return", "description": "Ask them to include a stronger player."},
+                        {"id": "counter_reduce_cost", "label": "Counter: Lower Cost", "description": "Offer a weaker player from your side."},
+                        {"id": "reject_trade", "label": "Reject", "description": "Keep roster unchanged."},
+                    ],
+                    payload={
+                        "partner_team": partner.name,
+                        "give_player": give_player.name,
+                        "receive_player": receive_player.name,
+                        "insight": insight,
+                    },
+                    auto_choice_id="reject_trade",
+                )
+                break
         elif roll < 0.75:
             positions = ["C", "LW", "RW", "D", "G"]
             pos = positions[int(self.simulator._rng.random() * len(positions))]
@@ -989,6 +1410,69 @@ class SimService:
                 break
         return out
 
+    def trade_market(self, team_name: str | None = None, partner_team: str | None = None) -> dict[str, Any]:
+        chosen = (team_name or self.user_team_name).strip()
+        team = self.simulator.get_team(chosen)
+        if team is None:
+            raise HTTPException(status_code=404, detail="Team not found")
+        partner_name = (partner_team or "").strip()
+        partners = sorted([t.name for t in self.simulator.teams if t.name != team.name])
+        my_assets = [
+            {
+                "name": p.name,
+                "position": p.position,
+                "age": p.age,
+                "overall": round(self._player_overall(p), 2),
+                "trade_value": round(self._trade_player_value(p, team), 3),
+            }
+            for p in self._eligible_trade_players(team, outgoing=True)
+        ]
+        partner_assets: list[dict[str, Any]] = []
+        if partner_name:
+            partner = self.simulator.get_team(partner_name)
+            if partner is not None:
+                partner_assets = [
+                    {
+                        "name": p.name,
+                        "position": p.position,
+                        "age": p.age,
+                        "overall": round(self._player_overall(p), 2),
+                        "trade_value": round(self._trade_player_value(p, partner), 3),
+                    }
+                    for p in self._eligible_trade_players(partner, outgoing=False)
+                ]
+        return {
+            "team": team.name,
+            "partners": partners,
+            "my_assets": my_assets,
+            "partner_team": partner_name,
+            "partner_assets": partner_assets,
+        }
+
+    def propose_trade(
+        self,
+        *,
+        team_name: str | None = None,
+        partner_team: str,
+        give_player: str,
+        receive_player: str,
+    ) -> dict[str, Any]:
+        chosen = (team_name or self.user_team_name).strip()
+        team = self.simulator.get_team(chosen)
+        partner = self.simulator.get_team(partner_team.strip())
+        if team is None or partner is None:
+            raise HTTPException(status_code=404, detail="Team not found")
+        if team.name == partner.name:
+            return {"ok": False, "reason": "same_team"}
+        result = self._propose_user_trade(
+            user_team=team,
+            partner_team=partner,
+            give_player_name=give_player.strip(),
+            receive_player_name=receive_player.strip(),
+        )
+        self._save_runtime_state()
+        return result
+
     def _coach_history_totals(self) -> dict[str, dict[str, int]]:
         totals: dict[str, dict[str, int]] = {}
         for season in self.simulator.season_history:
@@ -1301,78 +1785,37 @@ class SimService:
                 continue
             if rec_buyer.point_pct > 0.64:
                 continue
-
-            def _healthy_pos_players(team: Any, pos: str) -> list[Player]:
-                return [p for p in team.roster if p.position == pos and not p.is_injured]
-
-            need_positions = ["C", "LW", "RW", "D", "G"]
-            need_positions.sort(
-                key=lambda pos: (
-                    sum(self._player_overall(p) for p in _healthy_pos_players(buyer, pos)) / max(1, len(_healthy_pos_players(buyer, pos))),
-                    len(_healthy_pos_players(buyer, pos)),
-                )
-            )
-            target_pos = need_positions[0]
-            buyer_pool = sorted(_healthy_pos_players(buyer, target_pos), key=self._player_overall)
-            if not buyer_pool:
-                continue
-            buyer_out = buyer_pool[0]
-            buyer_score = self._player_overall(buyer_out)
-
-            best_deal: tuple[Any, Player, float] | None = None
+            best_trade: tuple[Team, Player, Player, dict[str, float], dict[str, float], float] | None = None
             for seller in cpu_teams:
                 if seller.name == buyer.name or seller.name in attempted:
                     continue
-                seller_pool = sorted(_healthy_pos_players(seller, target_pos), key=self._player_overall, reverse=True)
-                if target_pos == "G" and len(seller_pool) < 2:
+                offer = self._find_balanced_trade_offer(requesting_team=buyer, partner_team=seller)
+                if offer is None:
                     continue
-                if target_pos in {"C", "LW", "RW"} and len(seller_pool) < 5:
-                    continue
-                if target_pos == "D" and len(seller_pool) < 4:
-                    continue
-                if not seller_pool:
-                    continue
-                # Avoid swapping obvious stars: pick seller's best *expendable* player.
-                candidate_idx = 1 if len(seller_pool) > 1 else 0
-                seller_out = seller_pool[candidate_idx]
-                seller_score = self._player_overall(seller_out)
-                gain = seller_score - buyer_score
-                if gain < 0.18 or gain > 0.95:
-                    continue
-                if best_deal is None or gain > best_deal[2]:
-                    best_deal = (seller, seller_out, gain)
+                buyer_send, seller_out, buyer_eval, seller_eval = offer
+                quality = float(buyer_eval.get("net_value", 0.0)) + float(seller_eval.get("net_value", 0.0))
+                if best_trade is None or quality > best_trade[5]:
+                    best_trade = (seller, buyer_send, seller_out, buyer_eval, seller_eval, quality)
 
-            if best_deal is None:
+            if best_trade is None:
                 continue
 
-            seller, seller_out, gain = best_deal
-            # Buyer sends same-position depth piece back, preserving positional plausibility.
-            seller_return_pool = sorted([p for p in seller.roster if p.position == target_pos and not p.is_injured], key=self._player_overall)
-            buyer_return_pool = sorted([p for p in buyer.roster if p.position == target_pos and not p.is_injured], key=self._player_overall)
-            if not seller_return_pool or not buyer_return_pool:
-                continue
-            buyer_send = buyer_return_pool[0]
-            if buyer_send.name == buyer_out.name:
-                buyer_send = buyer_out
-            if seller_out.name == buyer_send.name:
-                continue
-
-            seller.roster.remove(seller_out)
-            buyer.roster.remove(buyer_send)
-            self.simulator.snapshot_trade_season_split(seller_out, seller.name)
-            self.simulator.snapshot_trade_season_split(buyer_send, buyer.name)
-            seller.roster.append(buyer_send)
-            buyer.roster.append(seller_out)
-            buyer_send.team_name = seller.name
-            seller_out.team_name = buyer.name
-            self.simulator.normalize_player_numbers()
-            buyer.set_default_lineup()
-            seller.set_default_lineup()
+            seller, buyer_send, seller_out, buyer_eval, seller_eval, _ = best_trade
+            self._execute_one_for_one_trade(
+                team_a=buyer,
+                team_b=seller,
+                team_a_player=buyer_send,
+                team_b_player=seller_out,
+            )
 
             self._add_news(
                 kind="trade",
                 headline=f"Trade: {buyer.name} acquired {seller_out.name} from {seller.name}",
-                details=f"{buyer.name} sent {buyer_send.name} to {seller.name}.",
+                details=(
+                    f"{buyer.name} sent {buyer_send.name} to {seller.name}. "
+                    f"Model values: {buyer.name} {float(buyer_eval.get('net_value', 0.0)):+.2f}, "
+                    f"{seller.name} {float(seller_eval.get('net_value', 0.0)):+.2f}."
+                ),
                 team="",
                 day=day,
             )
@@ -1383,8 +1826,8 @@ class SimService:
                     "seller": seller.name,
                     "buyer_gets": seller_out.name,
                     "seller_gets": buyer_send.name,
-                    "position": target_pos,
-                    "gain": round(gain, 3),
+                    "buyer_net": round(float(buyer_eval.get("net_value", 0.0)), 3),
+                    "seller_net": round(float(seller_eval.get("net_value", 0.0)), 3),
                 }
             )
             attempted.add(buyer.name)
@@ -4507,3 +4950,20 @@ def news(limit: int = 80) -> list[dict[str, Any]]:
 def transactions(team: str | None = None, limit: int = 200, season: int | None = None) -> list[dict[str, Any]]:
     with service._lock:
         return service.transactions(team_name=team, limit=limit, season=season)
+
+
+@app.get("/api/trade-market")
+def trade_market(team: str | None = None, partner: str | None = None) -> dict[str, Any]:
+    with service._lock:
+        return service.trade_market(team_name=team, partner_team=partner)
+
+
+@app.post("/api/trade/propose")
+def trade_propose(payload: TradeProposalSelection) -> dict[str, Any]:
+    with service._lock:
+        return service.propose_trade(
+            team_name=payload.team_name,
+            partner_team=payload.partner_team,
+            give_player=payload.give_player,
+            receive_player=payload.receive_player,
+        )

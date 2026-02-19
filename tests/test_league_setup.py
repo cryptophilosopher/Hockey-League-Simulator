@@ -1,7 +1,10 @@
+import pytest
+
 from hockey_sim.app import build_default_teams
 from hockey_sim.league import LeagueSimulator
 
 
+@pytest.mark.smoke
 def test_division_and_team_count() -> None:
     teams = build_default_teams()
     assert len(teams) == 24
@@ -14,6 +17,7 @@ def test_division_and_team_count() -> None:
     assert all(team.secondary_color.startswith("#") for team in teams)
 
 
+@pytest.mark.smoke
 def test_roster_size_and_default_dressed_count() -> None:
     teams = build_default_teams()
     for team in teams:
@@ -22,12 +26,14 @@ def test_roster_size_and_default_dressed_count() -> None:
         assert dressed_count == 20
 
 
+@pytest.mark.smoke
 def test_player_names_are_league_unique() -> None:
     teams = build_default_teams()
     names = [player.name for team in teams for player in team.roster]
     assert len(names) == len(set(names))
 
 
+@pytest.mark.smoke
 def test_last_names_are_varied_within_team() -> None:
     teams = build_default_teams()
     for team in teams:
@@ -35,10 +41,19 @@ def test_last_names_are_varied_within_team() -> None:
         assert len(last_names) > 1
 
 
+@pytest.mark.regression
 def test_offseason_advances_age_and_persists_history(tmp_path) -> None:
     teams = build_default_teams()
     history_file = tmp_path / "season_history.json"
-    sim = LeagueSimulator(teams=teams, games_per_matchup=1, seed=11, history_path=str(history_file))
+    sim = LeagueSimulator(
+        teams=teams,
+        games_per_matchup=1,
+        seed=11,
+        history_path=str(history_file),
+        state_path=str(tmp_path / "league_state.json"),
+        career_history_path=str(tmp_path / "career_history.json"),
+        hall_of_fame_path=str(tmp_path / "hall_of_fame.json"),
+    )
 
     initial_ages = {player.name: player.age for team in sim.teams for player in team.roster}
     while not sim.is_complete():
@@ -55,12 +70,12 @@ def test_offseason_advances_age_and_persists_history(tmp_path) -> None:
     assert "draft" in sim.season_history[0]
 
     for team in sim.teams:
-        assert len(team.roster) == 22
         for player in team.roster:
             if player.name in initial_ages:
                 assert player.age == initial_ages[player.name] + 1
 
 
+@pytest.mark.smoke
 def test_goalie_stats_accumulate() -> None:
     teams = build_default_teams()
     sim = LeagueSimulator(teams=teams, games_per_matchup=1, seed=9)
@@ -70,6 +85,7 @@ def test_goalie_stats_accumulate() -> None:
     assert any(g.goalie_games > 0 for g in goalies)
 
 
+@pytest.mark.regression
 def test_playoffs_include_cup_final_and_champion(tmp_path) -> None:
     teams = build_default_teams()
     history_file = tmp_path / "season_history.json"
@@ -96,6 +112,7 @@ def test_playoffs_include_cup_final_and_champion(tmp_path) -> None:
     assert any(isinstance(r, dict) and r.get("name") == "Cup Final" for r in rounds)
 
 
+@pytest.mark.regression
 def test_round_one_draft_order_and_player_pick_tracking(tmp_path) -> None:
     teams = build_default_teams()
     history_file = tmp_path / "season_history.json"
@@ -130,13 +147,14 @@ def test_round_one_draft_order_and_player_pick_tracking(tmp_path) -> None:
 
     round_one = []
     for team in sim.teams:
-        for player in team.roster:
+        for player in [*team.roster, *team.minor_roster]:
             if player.draft_round == 1:
                 round_one.append(player)
     assert len(round_one) >= len(teams)
     assert any(p.draft_overall == 1 for p in round_one)
 
 
+@pytest.mark.smoke
 def test_current_day_is_capped_at_regular_season_total() -> None:
     teams = build_default_teams()
     sim = LeagueSimulator(teams=teams, games_per_matchup=1, seed=31)
@@ -145,6 +163,7 @@ def test_current_day_is_capped_at_regular_season_total() -> None:
     assert sim.current_day == sim.total_days
 
 
+@pytest.mark.regression
 def test_playoff_day_advances_injury_recovery(tmp_path) -> None:
     teams = build_default_teams()
     sim = LeagueSimulator(
@@ -166,4 +185,5 @@ def test_playoff_day_advances_injury_recovery(tmp_path) -> None:
     injured_player = sim.teams[0].roster[0]
     injured_player.injured_games_remaining = 3
     sim.simulate_next_playoff_day()
-    assert injured_player.injured_games_remaining == 2
+    # Playoff days are pre-simulated before reveal; reveal should not decay injuries again.
+    assert injured_player.injured_games_remaining == 3

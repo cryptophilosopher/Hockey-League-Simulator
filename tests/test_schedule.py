@@ -1,7 +1,10 @@
+import pytest
+
 from hockey_sim.models import Team
 from hockey_sim.schedule import build_round_robin
 
 
+@pytest.mark.smoke
 def test_round_robin_count() -> None:
     teams = [
         Team(name="A"),

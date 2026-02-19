@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
-type MainNavKey = "home" | "inbox" | "transactions" | "contracts" | "free_agents" | "scores" | "league_news" | "team_stats" | "league_stats" | "standings" | "league_records" | "cup_history" | "roster" | "lines" | "callups" | "minors" | "franchise" | "records" | "banners";
+type MainNavKey = "home" | "transactions" | "contracts" | "free_agents" | "scores" | "league_news" | "team_stats" | "league_stats" | "standings" | "league_records" | "cup_history" | "roster" | "lines" | "callups" | "minors" | "franchise" | "records" | "banners";
 type StandingsTab = "standings" | "wildcard" | "playoffs";
 type NavScope = "league" | "team";
 type TransactionFilter = "all" | "trades" | "callups" | "injuries" | "signings";
@@ -662,6 +662,39 @@ type FreeAgentsPayload = {
   }>;
 };
 
+type TradeAssetRow = {
+  name: string;
+  position: string;
+  age: number;
+  overall: number;
+  trade_value: number;
+};
+
+type TradeMarketPayload = {
+  team: string;
+  partners: string[];
+  my_assets: TradeAssetRow[];
+  partner_team: string;
+  partner_assets: TradeAssetRow[];
+};
+
+type TradeProposalResult = {
+  ok: boolean;
+  reason?: string;
+  team?: string;
+  partner_team?: string;
+  give_player?: string;
+  receive_player?: string;
+  user_eval?: {
+    net_value: number;
+    min_net: number;
+  };
+  partner_eval?: {
+    net_value: number;
+    min_net: number;
+  };
+};
+
 const API_BASE = "http://127.0.0.1:8000/api";
 
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -704,6 +737,10 @@ export default function App() {
   const [transactions, setTransactions] = useState<TransactionRow[]>([]);
   const [transactionFilter, setTransactionFilter] = useState<TransactionFilter>("all");
   const [transactionSeason, setTransactionSeason] = useState<string>("all");
+  const [tradeMarket, setTradeMarket] = useState<TradeMarketPayload | null>(null);
+  const [tradePartner, setTradePartner] = useState("");
+  const [tradeGivePlayer, setTradeGivePlayer] = useState("");
+  const [tradeReceivePlayer, setTradeReceivePlayer] = useState("");
   const [contractsData, setContractsData] = useState<ContractsPayload | null>(null);
   const [freeAgentsData, setFreeAgentsData] = useState<FreeAgentsPayload | null>(null);
   const [leagueNews, setLeagueNews] = useState<TransactionRow[]>([]);
@@ -939,6 +976,25 @@ export default function App() {
     setTransactions(await fetchJson<TransactionRow[]>(`/transactions?team=${encodeURIComponent(chosen)}&limit=250`));
   }
 
+  async function loadTradeMarket(teamName?: string, partnerName?: string) {
+    const chosen = teamName ?? meta?.user_team;
+    if (!chosen) return;
+    const partner = partnerName ?? tradePartner;
+    const query = `/trade-market?team=${encodeURIComponent(chosen)}${partner ? `&partner=${encodeURIComponent(partner)}` : ""}`;
+    const payload = await fetchJson<TradeMarketPayload>(query);
+    setTradeMarket(payload);
+    const firstPartner = payload.partner_team || payload.partners[0] || "";
+    if (!tradePartner && firstPartner) {
+      setTradePartner(firstPartner);
+    }
+    if (!tradeGivePlayer && payload.my_assets.length > 0) {
+      setTradeGivePlayer(payload.my_assets[0].name);
+    }
+    if (!tradeReceivePlayer && payload.partner_assets.length > 0) {
+      setTradeReceivePlayer(payload.partner_assets[0].name);
+    }
+  }
+
   async function loadContracts(teamName?: string) {
     const chosen = teamName ?? meta?.user_team;
     if (!chosen) return;
@@ -989,6 +1045,7 @@ export default function App() {
         loadInbox(),
         (mainNav === "league_news" ? loadLeagueNews() : Promise.resolve()),
         (mainNav === "transactions" ? loadTransactions(m.user_team) : Promise.resolve()),
+        (mainNav === "transactions" ? loadTradeMarket(m.user_team, tradePartner) : Promise.resolve()),
         (mainNav === "contracts" ? loadContracts(m.user_team) : Promise.resolve()),
         (mainNav === "free_agents" ? loadFreeAgents(m.user_team) : Promise.resolve()),
         (mainNav === "callups" ? loadCallups(m.user_team) : Promise.resolve()),
@@ -1061,6 +1118,47 @@ export default function App() {
       body: JSON.stringify({ focus }),
     });
     await refreshAll();
+  }
+
+  async function onChangeTradePartner(partnerName: string) {
+    setTradePartner(partnerName);
+    setTradeReceivePlayer("");
+    if (!meta?.user_team) return;
+    await loadTradeMarket(meta.user_team, partnerName);
+  }
+
+  async function proposeTrade() {
+    if (!meta?.user_team || !tradePartner || !tradeGivePlayer || !tradeReceivePlayer) return;
+    const result = await fetchJson<TradeProposalResult>("/trade/propose", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        team_name: meta.user_team,
+        partner_team: tradePartner,
+        give_player: tradeGivePlayer,
+        receive_player: tradeReceivePlayer,
+      }),
+    });
+    if (!result.ok) {
+      const reason = result.reason ?? "trade_rejected";
+      const partnerNet = result.partner_eval?.net_value;
+      const partnerMin = result.partner_eval?.min_net;
+      const explain = (partnerNet !== undefined && partnerMin !== undefined)
+        ? ` (partner net ${partnerNet.toFixed(2)} vs min ${partnerMin.toFixed(2)})`
+        : "";
+      setError(`Trade rejected: ${reason}${explain}`);
+      await loadTradeMarket(meta.user_team, tradePartner);
+      return;
+    }
+    setError("");
+    await Promise.all([
+      loadTransactions(meta.user_team),
+      loadTradeMarket(meta.user_team, tradePartner),
+      loadHome(),
+      loadLeaders("team", meta.user_team),
+      loadRoster(meta.user_team),
+      loadLines(meta.user_team),
+    ]);
   }
 
   async function resolveInboxEvent(eventId: number, choiceId: string) {
@@ -1194,6 +1292,14 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scoreDay]);
 
+  useEffect(() => {
+    if (mainNav !== "transactions") return;
+    if (!meta?.user_team) return;
+    if (!tradePartner) return;
+    void loadTradeMarket(meta.user_team, tradePartner);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mainNav, meta?.user_team, tradePartner]);
+
   const leagueNav: Array<[MainNavKey, string]> = [
     ["scores", "Scores"],
     ["league_news", "League News"],
@@ -1225,8 +1331,10 @@ export default function App() {
     if (key === "records" || key === "league_records") void loadRecords();
     if (key === "banners") void loadBanners();
     if (key === "cup_history") void loadCupHistory();
-    if (key === "inbox") void loadInbox();
-    if (key === "transactions") void loadTransactions();
+    if (key === "transactions") {
+      void loadTransactions();
+      void loadTradeMarket();
+    }
     if (key === "contracts") void loadContracts();
     if (key === "free_agents") void loadFreeAgents();
     if (key === "roster") void loadRoster();
@@ -1755,52 +1863,6 @@ export default function App() {
         </section>
       ) : null}
 
-      {mainNav === "inbox" ? (
-        <section className="card">
-          <div className="section-head">
-            <h2>GM Inbox</h2>
-          </div>
-          <p className="muted">Actionable weekly decisions for your team. Unresolved items auto-resolve after expiry.</p>
-          {inboxEvents.length === 0 ? (
-            <p>No unresolved inbox events right now.</p>
-          ) : (
-            <div className="score-list">
-              {inboxEvents.map((ev) => (
-                <article key={`inbox-${ev.id}`} className="score-card">
-                  <h3>{ev.title}</h3>
-                  <div className="muted small">S{ev.season} D{ev.day} | Type: {ev.type} | Expires D{ev.expires_day}</div>
-                  <p>{ev.details}</p>
-                  <div className="inline-controls">
-                    {ev.options.map((opt) => (
-                      <span key={`${ev.id}-${opt.id}`} title={opt.description}>
-                        <button onClick={() => void resolveInboxEvent(ev.id, opt.id)}>
-                          {opt.label}
-                        </button>
-                      </span>
-                    ))}
-                    {String(ev.payload?.navigate_to ?? "") === "callups" ? (
-                      <button onClick={() => openCallupsPage()}>Go to Call Ups</button>
-                    ) : null}
-                  </div>
-                  {ev.type === "trade_offer" && ev.payload ? (
-                    <p className="muted">
-                      Offer details:{" "}
-                      <button onClick={() => void openPlayerCareer(String(ev.payload?.partner_team ?? ""), String(ev.payload?.receive_player ?? ""))}>
-                        {String(ev.payload?.receive_player ?? "-")}
-                      </button>{" "}
-                      for{" "}
-                      <button onClick={() => void openPlayerCareer(String(meta?.user_team ?? ""), String(ev.payload?.give_player ?? ""))}>
-                        {String(ev.payload?.give_player ?? "-")}
-                      </button>
-                    </p>
-                  ) : null}
-                </article>
-              ))}
-            </div>
-          )}
-        </section>
-      ) : null}
-
       {mainNav === "transactions" ? (
         <section className="card">
           <div className="section-head">
@@ -1817,6 +1879,59 @@ export default function App() {
                 ))}
               </select>
             </label>
+          </div>
+          <div className="trade-box">
+            <h3>Propose Trade</h3>
+            <div className="inline-controls">
+              <label>
+                Partner{" "}
+                <select
+                  value={tradePartner}
+                  onChange={(e) => { void onChangeTradePartner(e.target.value); }}
+                >
+                  <option value="">Select Team</option>
+                  {(tradeMarket?.partners ?? []).map((name) => (
+                    <option key={`trade-partner-${name}`} value={name}>{name}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                You Send{" "}
+                <select
+                  value={tradeGivePlayer}
+                  onChange={(e) => setTradeGivePlayer(e.target.value)}
+                >
+                  <option value="">Select Player</option>
+                  {(tradeMarket?.my_assets ?? []).map((p) => (
+                    <option key={`trade-give-${p.name}`} value={p.name}>
+                      {p.name} ({p.position}) OVR {p.overall.toFixed(2)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                You Receive{" "}
+                <select
+                  value={tradeReceivePlayer}
+                  onChange={(e) => setTradeReceivePlayer(e.target.value)}
+                  disabled={!tradePartner}
+                >
+                  <option value="">Select Player</option>
+                  {(tradeMarket?.partner_assets ?? []).map((p) => (
+                    <option key={`trade-receive-${p.name}`} value={p.name}>
+                      {p.name} ({p.position}) OVR {p.overall.toFixed(2)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                onClick={() => void proposeTrade()}
+                disabled={!tradePartner || !tradeGivePlayer || !tradeReceivePlayer}
+              >
+                Propose Trade
+              </button>
+            </div>
+            <p className="muted small">Trades are accepted/rejected by a value model that accounts for skill, age, contract value, and roster needs.</p>
           </div>
           <nav className="tabs">
             {[
@@ -2139,6 +2254,7 @@ export default function App() {
             </thead>
             <tbody>
               {(linesData?.units ?? []).map((unit, idx) => {
+                const linesTeam = linesData?.team ?? meta?.user_team ?? "";
                 const slotId = (col: "LW" | "C" | "RW" | "LD" | "RD" | "G") => {
                   if (col === "LD" || col === "RD") return idx < 3 ? `${col}${idx + 1}` : "";
                   if (col === "G") return idx < 2 ? `G${idx + 1}` : "";
@@ -2150,7 +2266,10 @@ export default function App() {
                   if (!(linesData?.override_coach_for_lines ?? false)) {
                     if (!item) return "-";
                       return (
-                        <span className={item.out_of_position ? "neg" : ""}>
+                        <span
+                          className={`text-link ${item.out_of_position ? "neg" : ""}`.trim()}
+                          onClick={() => linesTeam ? void openPlayerCareer(linesTeam, item.name) : undefined}
+                        >
                           {item.name} ({item.pos})
                         </span>
                       );
@@ -2191,7 +2310,7 @@ export default function App() {
               </thead>
               <tbody>
                 {(linesData?.extra_players ?? []).map((p) => (
-                  <tr key={`extra-${p.name}`}>
+                  <tr key={`extra-${p.name}`} className="row-clickable" onClick={() => linesData?.team ? void openPlayerCareer(linesData.team, p.name) : undefined}>
                     <td>{p.name}</td>
                     <td>{p.pos}</td>
                   </tr>
@@ -2209,7 +2328,7 @@ export default function App() {
               </thead>
               <tbody>
                 {(linesData?.injuries ?? []).map((inj) => (
-                  <tr key={`inj-${inj.name}`}>
+                  <tr key={`inj-${inj.name}`} className="row-clickable" onClick={() => linesData?.team ? void openPlayerCareer(linesData.team, inj.name) : undefined}>
                     <td className="name-cell nowrap">{renderInjuryChip(inj.injury_status, true)}{inj.name}</td>
                     <td>{inj.pos}</td>
                     <td>{inj.injury_type ?? "-"}</td>
@@ -2431,6 +2550,52 @@ export default function App() {
                           <h3>{ev.title}</h3>
                           <div className="muted small">S{ev.season} D{ev.day} | Expires D{ev.expires_day}</div>
                           <p>{ev.details}</p>
+                          {ev.type === "trade_offer" && ev.payload ? (
+                            (() => {
+                              const payload = ev.payload as Record<string, any>;
+                              const insight = (payload?.insight ?? {}) as Record<string, any>;
+                              const comparison = (insight?.comparison ?? {}) as Record<string, any>;
+                              const give = (comparison?.give ?? {}) as Record<string, any>;
+                              const receive = (comparison?.receive ?? {}) as Record<string, any>;
+                              const delta = (comparison?.delta ?? {}) as Record<string, any>;
+                              const reasons = Array.isArray(insight?.reasons) ? insight.reasons : [];
+                              const verdict = String(insight?.verdict ?? "Offer");
+                              const acceptProb = Number(insight?.accept_probability ?? 0);
+                              return (
+                                <div className="trade-offer-eval">
+                                  <div className="trade-offer-head">
+                                    <strong>{verdict}</strong>
+                                    <span className="muted small">Accept odds: {(acceptProb * 100).toFixed(0)}%</span>
+                                  </div>
+                                  <div className="trade-compare-grid">
+                                    <div className="trade-compare-card">
+                                      <div className="muted small">You Send</div>
+                                      <div className="text-link" onClick={() => void openPlayerCareer(String(meta?.user_team ?? ""), String(give?.name ?? ""))}>{String(give?.name ?? "-")}</div>
+                                      <div className="muted small">{String(give?.position ?? "-")} | Age {String(give?.age ?? "-")} | OVR {Number(give?.overall ?? 0).toFixed(2)}</div>
+                                      <div className="muted small">Cap ${Number(give?.cap_hit ?? 0).toFixed(2)}M | Years {String(give?.years_left ?? "-")}</div>
+                                    </div>
+                                    <div className="trade-compare-card">
+                                      <div className="muted small">You Receive</div>
+                                      <div className="text-link" onClick={() => void openPlayerCareer(String(payload?.partner_team ?? ""), String(receive?.name ?? ""))}>{String(receive?.name ?? "-")}</div>
+                                      <div className="muted small">{String(receive?.position ?? "-")} | Age {String(receive?.age ?? "-")} | OVR {Number(receive?.overall ?? 0).toFixed(2)}</div>
+                                      <div className="muted small">Cap ${Number(receive?.cap_hit ?? 0).toFixed(2)}M | Years {String(receive?.years_left ?? "-")}</div>
+                                    </div>
+                                  </div>
+                                  <div className="muted small">
+                                    Delta: OVR {(Number(delta?.overall ?? 0) >= 0 ? "+" : "") + Number(delta?.overall ?? 0).toFixed(2)}
+                                    {" | "}Age {(Number(delta?.age ?? 0) >= 0 ? "+" : "") + String(delta?.age ?? 0)}
+                                    {" | "}Cap {(Number(delta?.cap_hit ?? 0) >= 0 ? "+" : "") + Number(delta?.cap_hit ?? 0).toFixed(2)}M
+                                    {" | "}Years {(Number(delta?.years_left ?? 0) >= 0 ? "+" : "") + String(delta?.years_left ?? 0)}
+                                  </div>
+                                  {reasons.length > 0 ? (
+                                    <ul className="trade-reasons">
+                                      {reasons.map((r: string, idx: number) => <li key={`home-trade-reason-${ev.id}-${idx}`}>{r}</li>)}
+                                    </ul>
+                                  ) : null}
+                                </div>
+                              );
+                            })()
+                          ) : null}
                           <div className="inline-controls">
                             {ev.options.map((opt) => (
                               <span key={`${ev.id}-${opt.id}`} title={opt.description}>

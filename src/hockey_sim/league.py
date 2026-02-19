@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import json
 import random
+import shutil
 from typing import Any
 
 from .engine import GameResult, STRATEGY_EFFECTS, simulate_game
@@ -38,6 +39,7 @@ class LeagueResult:
 
 
 class LeagueSimulator:
+    SAVE_VERSION = 2
     DRAFT_FOCUS_OPTIONS = ("auto", "F", "C", "LW", "RW", "D", "G")
     COACH_FIRST_NAMES = (
         "Alex",
@@ -128,6 +130,7 @@ class LeagueSimulator:
         self.games_per_matchup = games_per_matchup
         self._rng = random.Random(seed)
         self.state_path = Path(state_path or "league_state.json")
+        self.last_load_error: str = ""
         loaded_state = self._load_state()
         loaded_teams = self._deserialize_teams(loaded_state.get("teams", [])) if loaded_state else []
         self.teams = loaded_teams if loaded_teams else teams
@@ -227,14 +230,32 @@ class LeagueSimulator:
             return []
         try:
             raw = json.loads(self.history_path.read_text(encoding="utf-8"))
+            if isinstance(raw, dict):
+                version = int(raw.get("save_version", 1) or 1)
+                if version > self.SAVE_VERSION:
+                    self.last_load_error = (
+                        f"Unsupported season history version {version}; app supports up to {self.SAVE_VERSION}."
+                    )
+                    return []
+                payload = raw.get("season_history", [])
+                if isinstance(payload, list):
+                    return payload
+                self.last_load_error = "Season history payload is invalid; starting with empty history."
+                return []
             if isinstance(raw, list):
                 return raw
-        except (json.JSONDecodeError, OSError):
+            self.last_load_error = "Season history file has invalid format; starting with empty history."
+        except (json.JSONDecodeError, OSError) as exc:
+            self.last_load_error = f"Failed to load season history ({exc}); starting with empty history."
             return []
         return []
 
     def _save_history(self) -> None:
-        self.history_path.write_text(json.dumps(self.season_history, indent=2), encoding="utf-8")
+        payload = {
+            "save_version": self.SAVE_VERSION,
+            "season_history": self.season_history,
+        }
+        self._write_json_with_backup(self.history_path, payload)
 
     def _load_state(self) -> dict[str, Any]:
         if not self.state_path.exists():
@@ -242,13 +263,22 @@ class LeagueSimulator:
         try:
             raw = json.loads(self.state_path.read_text(encoding="utf-8"))
             if isinstance(raw, dict):
+                version = int(raw.get("save_version", 1) or 1)
+                if version > self.SAVE_VERSION:
+                    self.last_load_error = (
+                        f"Unsupported league state version {version}; app supports up to {self.SAVE_VERSION}."
+                    )
+                    return {}
                 return raw
-        except (json.JSONDecodeError, OSError):
+            self.last_load_error = "League state file has invalid format; starting with defaults."
+        except (json.JSONDecodeError, OSError) as exc:
+            self.last_load_error = f"Failed to load league state ({exc}); starting with defaults."
             return {}
         return {}
 
     def _save_state(self) -> None:
         state = {
+            "save_version": self.SAVE_VERSION,
             "season_number": self.season_number,
             "day_index": self._day_index,
             "teams": [self._serialize_team(team) for team in self.teams],
@@ -263,7 +293,7 @@ class LeagueSimulator:
             "pending_playoff_days": self.pending_playoff_days,
             "pending_playoff_day_index": self.pending_playoff_day_index,
         }
-        self.state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+        self._write_json_with_backup(self.state_path, state)
 
     def _load_career_history(self) -> dict[str, list[dict[str, object]]]:
         if not self.career_history_path.exists():
@@ -271,31 +301,74 @@ class LeagueSimulator:
         try:
             raw = json.loads(self.career_history_path.read_text(encoding="utf-8"))
             if isinstance(raw, dict):
+                version = int(raw.get("save_version", 1) or 1)
+                if version > self.SAVE_VERSION:
+                    self.last_load_error = (
+                        f"Unsupported career history version {version}; app supports up to {self.SAVE_VERSION}."
+                    )
+                    return {}
+                payload = raw.get("career_history", raw)
+                if not isinstance(payload, dict):
+                    self.last_load_error = "Career history payload is invalid; starting empty."
+                    return {}
                 out: dict[str, list[dict[str, object]]] = {}
-                for player_name, seasons in raw.items():
+                for player_name, seasons in payload.items():
                     if isinstance(player_name, str) and isinstance(seasons, list):
                         out[player_name] = [entry for entry in seasons if isinstance(entry, dict)]
                 return out
-        except (json.JSONDecodeError, OSError):
+            self.last_load_error = "Career history file has invalid format; starting empty."
+        except (json.JSONDecodeError, OSError) as exc:
+            self.last_load_error = f"Failed to load career history ({exc}); starting empty."
             return {}
         return {}
 
     def _save_career_history(self) -> None:
-        self.career_history_path.write_text(json.dumps(self.career_history, indent=2), encoding="utf-8")
+        payload = {
+            "save_version": self.SAVE_VERSION,
+            "career_history": self.career_history,
+        }
+        self._write_json_with_backup(self.career_history_path, payload)
 
     def _load_hall_of_fame(self) -> list[dict[str, object]]:
         if not self.hall_of_fame_path.exists():
             return []
         try:
             raw = json.loads(self.hall_of_fame_path.read_text(encoding="utf-8"))
+            if isinstance(raw, dict):
+                version = int(raw.get("save_version", 1) or 1)
+                if version > self.SAVE_VERSION:
+                    self.last_load_error = (
+                        f"Unsupported hall of fame version {version}; app supports up to {self.SAVE_VERSION}."
+                    )
+                    return []
+                payload = raw.get("hall_of_fame", [])
+                if isinstance(payload, list):
+                    return [entry for entry in payload if isinstance(entry, dict)]
+                self.last_load_error = "Hall of fame payload is invalid; starting empty."
+                return []
             if isinstance(raw, list):
                 return [entry for entry in raw if isinstance(entry, dict)]
-        except (json.JSONDecodeError, OSError):
+            self.last_load_error = "Hall of fame file has invalid format; starting empty."
+        except (json.JSONDecodeError, OSError) as exc:
+            self.last_load_error = f"Failed to load hall of fame ({exc}); starting empty."
             return []
         return []
 
     def _save_hall_of_fame(self) -> None:
-        self.hall_of_fame_path.write_text(json.dumps(self.hall_of_fame, indent=2), encoding="utf-8")
+        payload = {
+            "save_version": self.SAVE_VERSION,
+            "hall_of_fame": self.hall_of_fame,
+        }
+        self._write_json_with_backup(self.hall_of_fame_path, payload)
+
+    def _write_json_with_backup(self, path: Path, payload: Any) -> None:
+        if path.exists():
+            backup = path.with_suffix(path.suffix + ".bak")
+            try:
+                shutil.copy2(path, backup)
+            except OSError:
+                pass
+        path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
     def _apply_career_history_to_rosters(self) -> None:
         for team in self.teams:
