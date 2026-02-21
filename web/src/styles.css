@@ -289,12 +289,30 @@ body {
   cursor: pointer;
 }
 
+.btn-chip {
+  border: 1px solid #aabfda;
+  border-radius: 999px;
+  background: #f4f8ff;
+  color: #1f3f64;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.btn-chip.active {
+  background: #1d5eaa;
+  border-color: #12467f;
+  color: #fff;
+}
+
 .trade-box {
   margin: 10px 0 12px;
-  padding: 10px;
-  border: 1px solid #c9d8ec;
-  border-radius: 10px;
-  background: #f8fbff;
+  padding: 12px;
+  border: 1px solid #c5d6ee;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #fbfdff, #f3f8ff);
+  box-shadow: 0 2px 8px rgba(17, 44, 89, 0.06);
 }
 
 .trade-box h3 {
@@ -332,6 +350,68 @@ body {
   margin: 6px 0 0 16px;
   color: #4b6180;
   font-size: 12px;
+}
+
+.needs-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(120px, 1fr));
+  gap: 6px 10px;
+}
+
+.need-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px dashed #d8e5f5;
+  padding-bottom: 2px;
+}
+
+.need-row input {
+  width: 72px;
+  border: 1px solid #aabfda;
+  border-radius: 8px;
+  padding: 3px 6px;
+  text-align: right;
+}
+
+.ovr-chip {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid #8eaad0;
+  background: #e9f1ff;
+  color: #0f2d53;
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.trade-pref-select {
+  min-width: 128px;
+  border-radius: 999px;
+  border: 1px solid #b8cae4;
+  padding: 4px 10px;
+  font-weight: 700;
+  font-size: 12px;
+  background: #f5f9ff;
+  color: #123055;
+}
+
+.trade-pref-select.available {
+  border-color: #9bb8da;
+  background: #eef5ff;
+  color: #153d72;
+}
+
+.trade-pref-select.shop {
+  border-color: #bda05a;
+  background: #fff8e8;
+  color: #7a5a18;
+}
+
+.trade-pref-select.untouchable {
+  border-color: #c98f8b;
+  background: #fff0ef;
+  color: #8d2922;
 }
 
 table {

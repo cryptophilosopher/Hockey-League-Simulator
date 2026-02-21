@@ -121,6 +121,7 @@ class Team:
     line_assignments: dict[str, str] = field(default_factory=dict)
     starting_goalie_name: str | None = None
     coach_name: str = "Staff Coach"
+    coach_age: int = 52
     coach_rating: float = 3.0
     coach_style: str = "balanced"
     coach_offense: float = 3.0
@@ -569,11 +570,18 @@ class TeamRecord:
             return "-"
         last = self.recent_results[-1]
         count = 1
+        if last == "W":
+            target_set = {"W"}
+            label = "W"
+        else:
+            # Match fan expectation: any consecutive non-win run is a losing streak.
+            target_set = {"L", "OTL"}
+            label = "L"
         for result in reversed(self.recent_results[:-1]):
-            if result != last:
+            if result not in target_set:
                 break
             count += 1
-        return f"{last}{count}"
+        return f"{label}{count}"
 
     @property
     def pp_pct(self) -> float:
@@ -626,5 +634,3 @@ class TeamRecord:
                 self.home_losses += 1
             else:
                 self.away_losses += 1
-        if len(self.recent_results) > 10:
-            self.recent_results = self.recent_results[-10:]

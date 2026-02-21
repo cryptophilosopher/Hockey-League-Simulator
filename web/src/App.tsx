@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type MainNavKey = "home" | "trade_center" | "transactions" | "contracts" | "free_agents" | "scores" | "league_news" | "team_stats" | "league_stats" | "awards" | "standings" | "league_records" | "cup_history" | "roster" | "lines" | "callups" | "minors" | "franchise" | "records" | "banners";
 type StandingsTab = "standings" | "wildcard" | "playoffs";
@@ -153,6 +153,7 @@ type PlayerCareerPayload = {
     team: string;
     name: string;
     jersey_number?: number | null;
+    overall?: number;
     age: number;
     position: string;
     country?: string;
@@ -288,12 +289,15 @@ type HomePanel = {
   };
   coach: {
     name: string;
+    age?: number;
     rating: number;
     style: string;
     offense: number;
     defense: number;
     goalie_dev: number;
     record?: string;
+    overall_record?: string;
+    cups?: number;
     tenure_seasons: number;
     changes_recent: number;
     honeymoon_games_remaining: number;
@@ -443,6 +447,7 @@ type HomePanel = {
 
 type CoachCandidate = {
   name: string;
+  age?: number;
   rating: number;
   style: string;
   offense: number;
@@ -457,6 +462,9 @@ type CoachCandidate = {
 
 type LinesPayload = {
   team: string;
+  total_count?: number;
+  active_count?: number;
+  injured_count?: number;
   coach: { name: string; rating: number; style: string };
   override_coach_for_lines: boolean;
   position_penalty: number;
@@ -546,7 +554,9 @@ type InboxResolveResponse = { ok: boolean; event: InboxEvent };
 
 type CallupsPayload = {
   team: string;
+  total_count?: number;
   active_count: number;
+  injured_count?: number;
   max_active: number;
   projected_next_day_active?: number;
   injuries: Array<{ name: string; position: string; injury_type?: string; injury_status?: string; games_out: number }>;
@@ -708,6 +718,17 @@ type TradeAssetRow = {
   age: number;
   overall: number;
   trade_value: number;
+  gp?: number;
+  g?: number;
+  a?: number;
+  p?: number;
+  w?: number;
+  l?: number;
+  so?: number;
+  gaa?: number;
+  sv_pct?: number;
+  on_trade_block?: boolean;
+  trade_preference?: "available" | "shop" | "untouchable";
 };
 
 type TeamNeeds = {
@@ -725,10 +746,14 @@ type TradeMarketPayload = {
   team: string;
   partners: string[];
   my_assets: TradeAssetRow[];
+  my_trade_block?: string[];
+  my_trade_preferences?: Record<string, "available" | "shop" | "untouchable">;
   my_needs?: TeamNeeds;
   partner_team: string;
   partner_assets: TradeAssetRow[];
   partner_needs?: TeamNeeds;
+  partner_trade_block?: string[];
+  partner_trade_preferences?: Record<string, "available" | "shop" | "untouchable">;
 };
 
 type TradeProposalResult = {
@@ -765,8 +790,16 @@ type TradeInsight = {
     partner_min?: number;
   };
   comparison?: {
-    give?: { name?: string; position?: string; age?: number; overall?: number; cap_hit?: number; years_left?: number };
-    receive?: { name?: string; position?: string; age?: number; overall?: number; cap_hit?: number; years_left?: number };
+    give?: {
+      name?: string; position?: string; age?: number; overall?: number; cap_hit?: number; years_left?: number;
+      stats?: Record<string, unknown>;
+      ratings?: Record<string, unknown>;
+    };
+    receive?: {
+      name?: string; position?: string; age?: number; overall?: number; cap_hit?: number; years_left?: number;
+      stats?: Record<string, unknown>;
+      ratings?: Record<string, unknown>;
+    };
     delta?: { overall?: number; age?: number; cap_hit?: number; years_left?: number };
   };
 };
@@ -822,11 +855,14 @@ export default function App() {
   const [inboxEvents, setInboxEvents] = useState<InboxEvent[]>([]);
   const [transactions, setTransactions] = useState<TransactionRow[]>([]);
   const [transactionFilter, setTransactionFilter] = useState<TransactionFilter>("all");
-  const [transactionSeason, setTransactionSeason] = useState<string>("all");
+  const [transactionSeason, setTransactionSeason] = useState<string>("auto");
   const [tradeMarket, setTradeMarket] = useState<TradeMarketPayload | null>(null);
+  const [tradeBlockPlayers, setTradeBlockPlayers] = useState<string[]>([]);
+  const [tradePreferences, setTradePreferences] = useState<Record<string, "available" | "shop" | "untouchable">>({});
   const [tradePartner, setTradePartner] = useState("");
   const [tradeGivePlayer, setTradeGivePlayer] = useState("");
   const [tradeReceivePlayer, setTradeReceivePlayer] = useState("");
+  const [tradeReceivePool, setTradeReceivePool] = useState<"all" | "shop" | "available">("all");
   const [tradePreview, setTradePreview] = useState<TradeEvaluateResult | null>(null);
   const [needsMode, setNeedsMode] = useState<"auto" | "manual">("auto");
   const [needsDraft, setNeedsDraft] = useState<Record<string, number>>({});
@@ -844,6 +880,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [simBusy, setSimBusy] = useState(false);
   const [error, setError] = useState("");
+  const leadersRequestId = useRef(0);
 
   const summary = useMemo(() => {
     if (!meta) return "Loading...";
@@ -856,6 +893,15 @@ export default function App() {
     return `Season ${meta.season} Day ${meta.day}/${meta.total_days}${meta.in_playoffs ? " | Playoffs" : ""}`;
   }, [meta, mainNav, scoreBoard]);
 
+  const teamPlayers = useMemo(
+    () => players.filter((p) => p.team === (meta?.user_team ?? p.team)),
+    [players, meta?.user_team],
+  );
+  const teamGoalies = useMemo(
+    () => goalies.filter((g) => g.team === (meta?.user_team ?? g.team)),
+    [goalies, meta?.user_team],
+  );
+
   const teamLeaders = useMemo(() => {
     const defs = [
       { key: "points", label: "Points", pick: (p: PlayerRow) => p.p, fmt: (v: number) => `${v}` },
@@ -866,7 +912,7 @@ export default function App() {
     ] as const;
 
     return defs.map((d) => {
-      const best = [...players].sort((a, b) => d.pick(b) - d.pick(a) || b.p - a.p || b.g - a.g || a.name.localeCompare(b.name))[0] ?? null;
+      const best = [...teamPlayers].sort((a, b) => d.pick(b) - d.pick(a) || b.p - a.p || b.g - a.g || a.name.localeCompare(b.name))[0] ?? null;
       return {
         key: d.key,
         label: d.label,
@@ -874,7 +920,7 @@ export default function App() {
         value: best ? d.fmt(d.pick(best)) : "-",
       };
     });
-  }, [players]);
+  }, [teamPlayers]);
 
   const isActiveRosterFull = (callupsData?.active_count ?? 0) >= (callupsData?.max_active ?? 22);
 
@@ -887,15 +933,20 @@ export default function App() {
   }, [transactions]);
 
   useEffect(() => {
+    if (transactionSeasons.length === 0) return;
+    if (transactionSeason === "auto") {
+      setTransactionSeason(String(transactionSeasons[0]));
+      return;
+    }
     if (transactionSeason === "all") return;
     const wanted = Number(transactionSeason);
     if (!transactionSeasons.includes(wanted)) {
-      setTransactionSeason("all");
+      setTransactionSeason(String(transactionSeasons[0]));
     }
   }, [transactionSeason, transactionSeasons]);
 
   const filteredTransactions = useMemo(() => {
-    const seasonFiltered = transactionSeason === "all"
+    const seasonFiltered = transactionSeason === "all" || transactionSeason === "auto"
       ? transactions
       : transactions.filter((t) => t.season === Number(transactionSeason));
     if (transactionFilter === "all") return seasonFiltered;
@@ -1022,10 +1073,12 @@ export default function App() {
   async function loadLeaders(scope: "league" | "team", teamName?: string) {
     const selectedTeam = teamName ?? meta?.user_team ?? "";
     const teamQuery = scope === "team" ? `&team=${encodeURIComponent(selectedTeam)}` : "";
+    const reqId = ++leadersRequestId.current;
     const [p, g] = await Promise.all([
       fetchJson<PlayerRow[]>(`/players?scope=${scope}${teamQuery}`),
       fetchJson<GoalieRow[]>(`/goalies?scope=${scope}${teamQuery}`),
     ]);
+    if (reqId !== leadersRequestId.current) return;
     setPlayers(p);
     setGoalies(g);
   }
@@ -1081,7 +1134,15 @@ export default function App() {
   async function loadTransactions(teamName?: string) {
     const chosen = teamName ?? meta?.user_team;
     if (!chosen) return;
-    setTransactions(await fetchJson<TransactionRow[]>(`/transactions?team=${encodeURIComponent(chosen)}&limit=250`));
+    setTransactions(await fetchJson<TransactionRow[]>(`/transactions?team=${encodeURIComponent(chosen)}&limit=5000`));
+  }
+
+  async function loadTradeBlock(teamName?: string) {
+    const chosen = teamName ?? meta?.user_team;
+    if (!chosen) return;
+    const payload = await fetchJson<{ team: string; players: string[]; preferences?: Record<string, "available" | "shop" | "untouchable"> }>(`/trade-block?team=${encodeURIComponent(chosen)}`);
+    setTradeBlockPlayers(payload.players ?? []);
+    setTradePreferences(payload.preferences ?? {});
   }
 
   async function loadTradeMarket(teamName?: string, partnerName?: string) {
@@ -1091,6 +1152,8 @@ export default function App() {
     const query = `/trade-market?team=${encodeURIComponent(chosen)}${partner ? `&partner=${encodeURIComponent(partner)}` : ""}`;
     const payload = await fetchJson<TradeMarketPayload>(query);
     setTradeMarket(payload);
+    setTradeBlockPlayers(payload.my_trade_block ?? []);
+    setTradePreferences(payload.my_trade_preferences ?? {});
     const firstPartner = payload.partner_team || payload.partners[0] || "";
     if (!tradePartner && firstPartner) {
       setTradePartner(firstPartner);
@@ -1157,6 +1220,7 @@ export default function App() {
         loadFranchise(m.user_team),
         loadHome(),
         loadInbox(),
+        loadTradeBlock(m.user_team),
         (mainNav === "league_news" ? loadLeagueNews() : Promise.resolve()),
         (mainNav === "transactions" ? loadTransactions(m.user_team) : Promise.resolve()),
         (mainNav === "trade_center" ? loadTradeMarket(m.user_team, tradePartner) : Promise.resolve()),
@@ -1253,17 +1317,22 @@ export default function App() {
       setTradePreview(null);
       return;
     }
-    const result = await fetchJson<TradeEvaluateResult>("/trade/evaluate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        team_name: meta.user_team,
-        partner_team: tradePartner,
-        give_player: tradeGivePlayer,
-        receive_player: tradeReceivePlayer,
-      }),
-    });
-    setTradePreview(result);
+    try {
+      const result = await fetchJson<TradeEvaluateResult>("/trade/evaluate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          team_name: meta.user_team,
+          partner_team: tradePartner,
+          give_player: tradeGivePlayer,
+          receive_player: tradeReceivePlayer,
+        }),
+      });
+      setTradePreview(result);
+    } catch (err) {
+      setTradePreview(null);
+      setError(err instanceof Error ? err.message : String(err));
+    }
   }
 
   async function proposeTrade() {
@@ -1319,6 +1388,26 @@ export default function App() {
     await loadTradeMarket(meta.user_team, tradePartner);
   }
 
+  async function updateTradeBlock(
+    playerName: string,
+    action: "add" | "remove" | "toggle" | "shop" | "available" | "untouchable" = "toggle",
+  ) {
+    if (!meta?.user_team || !playerName) return;
+    await fetchJson("/trade-block", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        team_name: meta.user_team,
+        player_name: playerName,
+        action,
+      }),
+    });
+    await Promise.all([
+      loadTradeBlock(meta.user_team),
+      (mainNav === "trade_center" ? loadTradeMarket(meta.user_team, tradePartner) : Promise.resolve()),
+    ]);
+  }
+
   async function resolveInboxEvent(eventId: number, choiceId: string) {
     const resp = await fetchJson<InboxResolveResponse>("/inbox/resolve", {
       method: "POST",
@@ -1330,6 +1419,21 @@ export default function App() {
       setAutoActionToast(resp?.event?.result_note || "Auto roster move completed.");
       window.setTimeout(() => setAutoActionToast(""), 5000);
     }
+  }
+
+  async function loadIncomingTradeOffer(ev: InboxEvent) {
+    if (!meta?.user_team) return;
+    const payload = (ev.payload ?? {}) as Record<string, unknown>;
+    const partner = String(payload.partner_team ?? "").trim();
+    const give = String(payload.give_player ?? "").trim();
+    const receive = String(payload.receive_player ?? "").trim();
+    if (!partner || !give || !receive) return;
+    setTradePartner(partner);
+    setTradeReceivePool("all");
+    await loadTradeMarket(meta.user_team, partner);
+    setTradeGivePlayer(give);
+    setTradeReceivePlayer(receive);
+    setMainNav("trade_center");
   }
 
   async function promoteCallup(playerName: string) {
@@ -1446,6 +1550,14 @@ export default function App() {
   }, [standingsMode, meta?.conferences.join(","), meta?.divisions.join(",")]);
 
   useEffect(() => {
+    if (mainNav !== "trade_center") return;
+    const firstOffer = inboxEvents.find((ev) => ev.type === "trade_offer");
+    if (!firstOffer) return;
+    void loadIncomingTradeOffer(firstOffer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mainNav, inboxEvents]);
+
+  useEffect(() => {
     if (scoreDay >= 0) void loadDayBoards(scoreDay);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scoreDay]);
@@ -1476,6 +1588,46 @@ export default function App() {
     setNeedsDraft({ ...(needs.scores ?? {}) });
   }, [tradeMarket?.my_needs]);
 
+  const tradePrefOf = (playerName: string): "available" | "shop" | "untouchable" => {
+    return tradePreferences[playerName] ?? "available";
+  };
+  const shopNames = Object.entries(tradePreferences)
+    .filter(([, pref]) => pref === "shop")
+    .map(([name]) => name)
+    .sort();
+  const untouchableNames = Object.entries(tradePreferences)
+    .filter(([, pref]) => pref === "untouchable")
+    .map(([name]) => name)
+    .sort();
+  const availableCount = Object.entries(tradePreferences)
+    .filter(([, pref]) => pref === "available").length;
+  const partnerPrefEntries = Object.entries(tradeMarket?.partner_trade_preferences ?? {});
+  const partnerShopLine = partnerPrefEntries
+    .filter(([, pref]) => pref === "shop")
+    .map(([name]) => {
+      const p = (tradeMarket?.partner_assets ?? []).find((a) => a.name === name);
+      return p ? `${name} (${p.position})` : name;
+    })
+    .join(", ");
+  const partnerAvailableCount = partnerPrefEntries.filter(([, pref]) => pref === "available").length;
+  const filteredPartnerAssets = (tradeMarket?.partner_assets ?? []).filter((p) => {
+    if (tradeReceivePool === "all") return true;
+    return (p.trade_preference ?? "available") === tradeReceivePool;
+  });
+
+  useEffect(() => {
+    if (!tradeMarket?.partner_assets) return;
+    if (filteredPartnerAssets.length === 0) {
+      setTradeReceivePlayer("");
+      return;
+    }
+    const exists = filteredPartnerAssets.some((p) => p.name === tradeReceivePlayer);
+    if (!exists) {
+      setTradeReceivePlayer(filteredPartnerAssets[0].name);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tradeReceivePool, tradeMarket?.partner_assets, tradePartner]);
+
   const leagueNav: Array<[MainNavKey, string]> = [
     ["scores", "Scores"],
     ["league_news", "League News"],
@@ -1504,14 +1656,19 @@ export default function App() {
   function handleNavSelect(key: MainNavKey) {
     if (key === "scores") setScoreDay(0);
     if (key === "league_news") void loadLeagueNews();
-    if (key === "team_stats") void loadLeaders("team");
+    if (key === "team_stats") void loadLeaders("team", meta?.user_team);
     if (key === "league_stats") void loadLeaders("league");
     if (key === "records" || key === "league_records") void loadRecords();
     if (key === "banners") void loadBanners();
     if (key === "awards") void loadAwards();
     if (key === "cup_history") void loadCupHistory();
     if (key === "trade_center") {
-      void loadTradeMarket();
+      const firstOffer = inboxEvents.find((ev) => ev.type === "trade_offer");
+      if (firstOffer) {
+        void loadIncomingTradeOffer(firstOffer);
+      } else {
+        void loadTradeMarket();
+      }
     }
     if (key === "transactions") {
       void loadTransactions();
@@ -2070,14 +2227,14 @@ export default function App() {
           </div>
           <div className="split team-stats-split">
             <div><h3>Skaters</h3><table className="banded skaters-table"><thead><tr><th>Player</th><th>Pos</th><th>GP</th><th>G</th><th>A</th><th>P</th><th>+/-</th><th>PIM</th><th>TOI/G</th><th>PPG</th><th>PPA</th><th>SHG</th><th>SHA</th><th>S</th><th>S%</th><th>Out</th></tr></thead><tbody>
-              {players.map((p) => (
+              {teamPlayers.map((p) => (
                 <tr key={`${p.team}-${p.name}`} className="row-clickable" onClick={() => void openPlayerCareer(p.team, p.name)}>
                   <td className="name-cell nowrap">{renderInjuryChip(p.injury_status, p.injured)}{playerLabel(p.name, p.jersey_number)}</td><td>{p.position}</td><td>{p.gp}</td><td>{p.g}</td><td>{p.a}</td><td>{p.p}</td><td>{p.plus_minus}</td><td>{p.pim}</td><td>{p.toi_g.toFixed(1)}</td><td>{p.ppg}</td><td>{p.ppa}</td><td>{p.shg}</td><td>{p.sha}</td><td>{p.shots}</td><td>{p.shot_pct.toFixed(1)}</td><td>{(p.injured || (p.injury_status ?? "").toUpperCase().includes("DTD")) ? <span className="neg">{p.injured_games_remaining ?? 0}</span> : "-"}</td>
                 </tr>
               ))}
             </tbody></table></div>
             <div><h3>Goalies</h3><table className="banded goalies-table"><thead><tr><th>Goalie</th><th>GP</th><th>W</th><th>L</th><th>OTL</th><th>SO</th><th>GAA</th><th>SV%</th><th>Out</th></tr></thead><tbody>
-              {goalies.map((g) => (
+              {teamGoalies.map((g) => (
                 <tr key={`${g.team}-${g.name}`} className="row-clickable" onClick={() => void openPlayerCareer(g.team, g.name)}>
                   <td className="name-cell nowrap">{renderInjuryChip(g.injury_status, g.injured)}{playerLabel(g.name, g.jersey_number)}</td><td>{g.gp}</td><td>{g.w}</td><td>{g.l}</td><td>{g.otl}</td><td>{g.so}</td><td>{g.gaa.toFixed(2)}</td><td>{g.sv_pct.toFixed(3)}</td><td>{(g.injured || (g.injury_status ?? "").toUpperCase().includes("DTD")) ? <span className="neg">{g.injured_games_remaining ?? 0}</span> : "-"}</td>
                 </tr>
@@ -2248,6 +2405,10 @@ export default function App() {
               <p className="muted small">
                 Team: {tradeMarket?.partner_team || "-"} | Window: {tradeMarket?.partner_needs?.window ?? "-"} | Primary: {needLabel(tradeMarket?.partner_needs?.primary_need ?? "-")}
               </p>
+              <p className="muted small">
+                Partner Shop: {partnerShopLine || "None published"}
+                {" | "}Partner Available: {partnerAvailableCount}
+              </p>
               <div className="needs-grid">
                 {Object.entries(tradeMarket?.partner_needs?.scores ?? {}).map(([k, v]) => (
                   <div key={`partner-need-${k}`} className="need-row">
@@ -2261,6 +2422,10 @@ export default function App() {
 
           <div className="trade-box">
             <h3>Propose Trade</h3>
+            <p className="muted small">
+              Shop: {shopNames.length > 0 ? shopNames.join(", ") : "None"}
+              {" | "}Available: {availableCount}
+            </p>
             <div className="inline-controls">
               <label>
                 Partner{" "}
@@ -2296,13 +2461,36 @@ export default function App() {
                   disabled={!tradePartner}
                 >
                   <option value="">Select Player</option>
-                  {(tradeMarket?.partner_assets ?? []).map((p) => (
+                  {filteredPartnerAssets.map((p) => (
                     <option key={`trade-receive-${p.name}`} value={p.name}>
-                      {p.name} ({p.position}) OVR {p.overall.toFixed(2)}
+                      {p.name} ({p.position}) OVR {p.overall.toFixed(2)} [{(p.trade_preference ?? "available").toUpperCase()}]
                     </option>
                   ))}
                 </select>
               </label>
+              <div className="inline-controls">
+                <span className="muted small">Receive Pool</span>
+                {([
+                  ["all", "All"],
+                  ["shop", "Shop"],
+                  ["available", "Available"],
+                ] as const).map(([key, label]) => (
+                  <button
+                    key={`receive-pool-${key}`}
+                    className={tradeReceivePool === key ? "btn-chip active" : "btn-chip"}
+                    onClick={() => setTradeReceivePool(key)}
+                    type="button"
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={() => void evaluateTrade()}
+                disabled={!tradePartner || !tradeGivePlayer || !tradeReceivePlayer}
+              >
+                Evaluate Trade
+              </button>
               <button
                 onClick={() => void proposeTrade()}
                 disabled={!tradePartner || !tradeGivePlayer || !tradeReceivePlayer}
@@ -2325,6 +2513,18 @@ export default function App() {
                   const needFit = insight.need_fit ?? {};
                   const value = insight.value ?? {};
                   const reasons = Array.isArray(insight.reasons) ? insight.reasons : [];
+                  const renderDetailStats = (player: { position?: unknown; stats?: unknown }) => {
+                    const pos = String(player.position ?? "");
+                    const stats = (player.stats ?? {}) as Record<string, unknown>;
+                    if (pos === "G") {
+                      return `GP ${Number(stats.gp ?? 0)} | W ${Number(stats.w ?? 0)} | L ${Number(stats.l ?? 0)} | SO ${Number(stats.so ?? 0)} | GAA ${Number(stats.gaa ?? 0).toFixed(2)} | SV% ${Number(stats.sv_pct ?? 0).toFixed(3)}`;
+                    }
+                    return `GP ${Number(stats.gp ?? 0)} | G ${Number(stats.g ?? 0)} | A ${Number(stats.a ?? 0)} | P ${Number(stats.p ?? 0)} | +/- ${Number(stats.plus_minus ?? 0)} | PIM ${Number(stats.pim ?? 0)}`;
+                  };
+                  const renderRatings = (player: { ratings?: unknown }) => {
+                    const r = (player.ratings ?? {}) as Record<string, unknown>;
+                    return `Shot ${Number(r.shooting ?? 0).toFixed(2)} | Play ${Number(r.playmaking ?? 0).toFixed(2)} | Def ${Number(r.defense ?? 0).toFixed(2)} | Glt ${Number(r.goaltending ?? 0).toFixed(2)} | Phys ${Number(r.physical ?? 0).toFixed(2)} | Dur ${Number(r.durability ?? 0).toFixed(2)}`;
+                  };
                   return (
                     <>
                       <div className="trade-offer-head">
@@ -2337,12 +2537,16 @@ export default function App() {
                           <div className="text-link" onClick={() => void openPlayerCareer(String(meta?.user_team ?? ""), String(give.name ?? ""))}>{String(give.name ?? "-")}</div>
                           <div className="muted small">{String(give.position ?? "-")} | Age {String(give.age ?? "-")} | OVR {Number(give.overall ?? 0).toFixed(2)}</div>
                           <div className="muted small">Cap ${Number(give.cap_hit ?? 0).toFixed(2)}M | Years {String(give.years_left ?? "-")}</div>
+                          <div className="muted small">{renderDetailStats(give)}</div>
+                          <div className="muted small">{renderRatings(give)}</div>
                         </div>
                         <div className="trade-compare-card">
                           <div className="muted small">You Receive</div>
                           <div className="text-link" onClick={() => void openPlayerCareer(String(tradePartner), String(receive.name ?? ""))}>{String(receive.name ?? "-")}</div>
                           <div className="muted small">{String(receive.position ?? "-")} | Age {String(receive.age ?? "-")} | OVR {Number(receive.overall ?? 0).toFixed(2)}</div>
                           <div className="muted small">Cap ${Number(receive.cap_hit ?? 0).toFixed(2)}M | Years {String(receive.years_left ?? "-")}</div>
+                          <div className="muted small">{renderDetailStats(receive)}</div>
+                          <div className="muted small">{renderRatings(receive)}</div>
                         </div>
                       </div>
                       <div className="muted small">
@@ -2384,53 +2588,8 @@ export default function App() {
                     <h3>{ev.title}</h3>
                     <div className="muted small">S{ev.season} D{ev.day} | Expires D{ev.expires_day}</div>
                     <p>{ev.details}</p>
-                    {ev.payload ? (
-                      (() => {
-                        const payload = ev.payload as Record<string, any>;
-                        const insight = (payload?.insight ?? {}) as Record<string, any>;
-                        const comparison = (insight?.comparison ?? {}) as Record<string, any>;
-                        const give = (comparison?.give ?? {}) as Record<string, any>;
-                        const receive = (comparison?.receive ?? {}) as Record<string, any>;
-                        const delta = (comparison?.delta ?? {}) as Record<string, any>;
-                        const reasons = Array.isArray(insight?.reasons) ? insight.reasons : [];
-                        const verdict = String(insight?.verdict ?? "Offer");
-                        const acceptProb = Number(insight?.accept_probability ?? 0);
-                        return (
-                          <div className="trade-offer-eval">
-                            <div className="trade-offer-head">
-                              <strong>{verdict}</strong>
-                              <span className="muted small">Accept odds: {(acceptProb * 100).toFixed(0)}%</span>
-                            </div>
-                            <div className="trade-compare-grid">
-                              <div className="trade-compare-card">
-                                <div className="muted small">You Send</div>
-                                <div className="text-link" onClick={() => void openPlayerCareer(String(meta?.user_team ?? ""), String(give?.name ?? ""))}>{String(give?.name ?? "-")}</div>
-                                <div className="muted small">{String(give?.position ?? "-")} | Age {String(give?.age ?? "-")} | OVR {Number(give?.overall ?? 0).toFixed(2)}</div>
-                                <div className="muted small">Cap ${Number(give?.cap_hit ?? 0).toFixed(2)}M | Years {String(give?.years_left ?? "-")}</div>
-                              </div>
-                              <div className="trade-compare-card">
-                                <div className="muted small">You Receive</div>
-                                <div className="text-link" onClick={() => void openPlayerCareer(String(payload?.partner_team ?? ""), String(receive?.name ?? ""))}>{String(receive?.name ?? "-")}</div>
-                                <div className="muted small">{String(receive?.position ?? "-")} | Age {String(receive?.age ?? "-")} | OVR {Number(receive?.overall ?? 0).toFixed(2)}</div>
-                                <div className="muted small">Cap ${Number(receive?.cap_hit ?? 0).toFixed(2)}M | Years {String(receive?.years_left ?? "-")}</div>
-                              </div>
-                            </div>
-                            <div className="muted small">
-                              Delta: OVR {(Number(delta?.overall ?? 0) >= 0 ? "+" : "") + Number(delta?.overall ?? 0).toFixed(2)}
-                              {" | "}Age {(Number(delta?.age ?? 0) >= 0 ? "+" : "") + String(delta?.age ?? 0)}
-                              {" | "}Cap {(Number(delta?.cap_hit ?? 0) >= 0 ? "+" : "") + Number(delta?.cap_hit ?? 0).toFixed(2)}M
-                              {" | "}Years {(Number(delta?.years_left ?? 0) >= 0 ? "+" : "") + String(delta?.years_left ?? 0)}
-                            </div>
-                            {reasons.length > 0 ? (
-                              <ul className="trade-reasons">
-                                {reasons.map((r: string, idx: number) => <li key={`trade-center-reason-${ev.id}-${idx}`}>{r}</li>)}
-                              </ul>
-                            ) : null}
-                          </div>
-                        );
-                      })()
-                    ) : null}
                     <div className="inline-controls">
+                      <button onClick={() => void loadIncomingTradeOffer(ev)}>Review In Evaluation</button>
                       {ev.options.map((opt) => (
                         <span key={`${ev.id}-${opt.id}`} title={opt.description}>
                           <button onClick={() => void resolveInboxEvent(ev.id, opt.id)}>
@@ -2593,6 +2752,8 @@ export default function App() {
           <h2>{callupsData?.team ?? (meta?.user_team ?? "Team")} Call Ups</h2>
           <p className="muted">
             Manage promotions from minors and send-downs when injuries hit.
+            {" | "}Roster total: {callupsData?.total_count ?? 0}
+            {" | "}Injured: {callupsData?.injured_count ?? 0}
             {" | "}Active roster: {callupsData?.active_count ?? 0}/{callupsData?.max_active ?? 22}
             {" | "}Projected next day: {callupsData?.projected_next_day_active ?? (callupsData?.active_count ?? 0)}/{callupsData?.max_active ?? 22}
           </p>
@@ -2682,6 +2843,8 @@ export default function App() {
           <h2>{rosterData?.team ?? (meta?.user_team ?? "Team")} Roster</h2>
           <p className="muted">
             Captain: {rosterData?.captain ?? "-"} | Assistants: {(rosterData?.assistants ?? []).length > 0 ? (rosterData?.assistants ?? []).join(", ") : "-"}
+            {" | "}Shop: {shopNames.length > 0 ? shopNames.join(", ") : "None"}
+            {" | "}Untouchable: {untouchableNames.length > 0 ? untouchableNames.join(", ") : "None"}
           </p>
           {rosterData ? (
             Object.entries(rosterData.groups).map(([groupName, rows]) => (
@@ -2690,7 +2853,7 @@ export default function App() {
                 <table className="banded">
                   <thead>
                     <tr>
-                      <th>Name</th><th>Age</th><th>HT</th><th>WT</th><th>Shot</th><th>Birth Place</th><th>Birthdate</th><th>Out</th>
+                      <th>Name</th><th>Age</th><th>HT</th><th>WT</th><th>Shot</th><th>Birth Place</th><th>Birthdate</th><th>Out</th><th>Trade Pref</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -2704,6 +2867,24 @@ export default function App() {
                         <td>{r.birth_place}</td>
                         <td>{r.birthdate}</td>
                         <td>{r.injured ? <span className="neg">{r.injured_games_remaining ?? 0}</span> : "-"}</td>
+                        <td>
+                          <select
+                            className={`trade-pref-select ${tradePrefOf(r.name)}`}
+                            value={tradePrefOf(r.name)}
+                            onChange={(e) => {
+                              e.stopPropagation();
+                              void updateTradeBlock(
+                                r.name,
+                                e.target.value as "shop" | "available" | "untouchable",
+                              );
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <option value="available">Available</option>
+                            <option value="shop">Shop</option>
+                            <option value="untouchable">Untouchable</option>
+                          </select>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -2761,6 +2942,9 @@ export default function App() {
           <h2>{linesData?.team ?? (meta?.user_team ?? "Team")} Lines</h2>
           <p className="muted">
             Coach: {linesData?.coach.name ?? "-"} ({linesData ? linesData.coach.rating.toFixed(2) : "-"}, {linesData?.coach.style ?? "-"})
+          </p>
+          <p className="muted">
+            Roster total: {linesData?.total_count ?? 0} | Injured: {linesData?.injured_count ?? 0} | Active: {linesData?.active_count ?? 0}
           </p>
           <p className="muted">
             Position Penalty: {(linesData?.position_penalty ?? 0).toFixed(3)} | {linesData?.override_coach_for_lines ? "Manual Lines Enabled" : "Coach Controls Lines"}
@@ -2988,7 +3172,7 @@ export default function App() {
           </div>
           {homePanel?.top_story ? (
             <div className="score-card">
-              <h3>Top Story</h3>
+              <h3>Top Stories</h3>
               <p className="muted">
                 S{homePanel.top_story.season ?? "-"} {((homePanel.top_story.day ?? 0) > 0) ? `D${homePanel.top_story.day}` : "Offseason"}
                 {" | "}
@@ -3109,7 +3293,10 @@ export default function App() {
                 </div>
                 {showCoachDetails ? (
                   <div>
-                    <p className="muted">Record {homePanel.coach.record ?? "-"} | Rating {homePanel.coach.rating.toFixed(2)} | Style {homePanel.coach.style}</p>
+                    <p className="muted">
+                      Overall Record {homePanel.coach.overall_record ?? "-"} | Cups {homePanel.coach.cups ?? 0}
+                    </p>
+                    <p className="muted">Age {homePanel.coach.age ?? "-"} | Rating {homePanel.coach.rating.toFixed(2)} | Style {homePanel.coach.style}</p>
                     <p className="muted">
                       Off {homePanel.coach.offense.toFixed(2)} | Def {homePanel.coach.defense.toFixed(2)} | Goalie Dev {homePanel.coach.goalie_dev.toFixed(2)}
                     </p>
@@ -3144,11 +3331,11 @@ export default function App() {
             </div>
             <div className="modal-lines">
               <table>
-                <thead><tr><th>Coach</th><th>Rating</th><th>Style</th><th>W-L-OTL</th><th>Cups</th><th>Source</th></tr></thead>
+                <thead><tr><th>Coach</th><th>Age</th><th>Rating</th><th>Style</th><th>W-L-OTL</th><th>Cups</th><th>Source</th></tr></thead>
                 <tbody>
                   {coachCandidates.map((c) => (
                     <tr key={`coach-${c.name}`} className={selectedCoachName === c.name ? "row-clickable" : ""} onClick={() => setSelectedCoachName(c.name)}>
-                      <td>{c.name}</td><td>{c.rating.toFixed(2)}</td><td>{c.style}</td><td>{c.w}-{c.l}-{c.otl}</td><td>{c.cups}</td><td>{c.source}</td>
+                      <td>{c.name}</td><td>{c.age ?? "-"}</td><td>{c.rating.toFixed(2)}</td><td>{c.style}</td><td>{c.w}-{c.l}-{c.otl}</td><td>{c.cups}</td><td>{c.source}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -3162,6 +3349,9 @@ export default function App() {
         <div className="modal-overlay" onClick={() => setPlayerCareer(null)}>
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
             <h3>{playerLabel(playerCareer.player.name, playerCareer.player.jersey_number)}</h3>
+            <p className="muted">
+              <span className="ovr-chip">OVR {Number(playerCareer.player.overall ?? 0).toFixed(2)}</span>
+            </p>
             <p className="muted">
               Position: {playerCareer.player.position} | Team: {playerCareer.player.team} | Country: {playerCareer.player.country ?? "-"} | Draft: {playerCareer.player.draft_label ?? "Undrafted"}
             </p>

@@ -73,7 +73,7 @@ def _make_roster(
         roster.append(
             Player(
                 team_name=team_name,
-                name=name_gen.next_name(),
+                name=name_gen.next_name(birth_country_code),
                 position=pos,
                 birth_country=birth_country,
                 birth_country_code=birth_country_code,
@@ -102,7 +102,7 @@ def _make_roster(
         roster.append(
             Player(
                 team_name=team_name,
-                name=name_gen.next_name(),
+                name=name_gen.next_name(birth_country_code),
                 position="D",
                 birth_country=birth_country,
                 birth_country_code=birth_country_code,
@@ -125,7 +125,7 @@ def _make_roster(
         roster.append(
             Player(
                 team_name=team_name,
-                name=name_gen.next_name(),
+                name=name_gen.next_name(birth_country_code),
                 position="G",
                 birth_country=birth_country,
                 birth_country_code=birth_country_code,
@@ -168,7 +168,7 @@ def _make_minor_roster(
         roster.append(
             Player(
                 team_name=team_name,
-                name=name_gen.next_name(),
+                name=name_gen.next_name(birth_country_code),
                 position=pos,
                 birth_country=birth_country,
                 birth_country_code=birth_country_code,
@@ -193,30 +193,30 @@ def _make_minor_roster(
 
 def build_default_teams() -> list[Team]:
     team_logos: dict[str, str] = {
-        "Aurora": "🌌",
-        "Icebreakers": "🧊",
-        "Timberwolves": "🐺",
-        "Glaciers": "🏔️",
-        "Polar Caps": "❄️",
-        "Silver Pines": "🌲",
-        "Harbor Kings": "⚓",
-        "Liberty Blades": "🗽",
-        "Metro Sparks": "⚡",
-        "Atlantic Wolves": "🐾",
-        "Capital Foxes": "🦊",
-        "Bay Comets": "☄️",
-        "Prairie Storm": "🌩️",
-        "Iron Rangers": "🛡️",
-        "Lake Vipers": "🐍",
-        "Granite Bears": "🐻",
-        "Steel River": "🏭",
-        "Red Hawks": "🪶",
-        "Desert Fire": "🔥",
-        "Pacific Tide": "🌊",
-        "Summit Eagles": "🦅",
-        "Canyon Coyotes": "🌵",
-        "Emerald Orcas": "🐋",
-        "Golden Peaks": "⛰️",
+        "Aurora": "??",
+        "Icebreakers": "??",
+        "Timberwolves": "??",
+        "Glaciers": "???",
+        "Polar Caps": "??",
+        "Silver Pines": "??",
+        "Harbor Kings": "?",
+        "Liberty Blades": "??",
+        "Metro Sparks": "?",
+        "Atlantic Wolves": "??",
+        "Capital Foxes": "??",
+        "Bay Comets": "??",
+        "Prairie Storm": "???",
+        "Iron Rangers": "???",
+        "Lake Vipers": "??",
+        "Granite Bears": "??",
+        "Steel River": "??",
+        "Red Hawks": "??",
+        "Desert Fire": "??",
+        "Pacific Tide": "??",
+        "Summit Eagles": "??",
+        "Canyon Coyotes": "??",
+        "Emerald Orcas": "??",
+        "Golden Peaks": "??",
     }
     divisions: dict[str, list[tuple[str, float, float, float, str, str]]] = {
         "North": [
@@ -295,4 +295,5 @@ def format_player_stats(players: Iterable[Player], title: str, limit: int = 20) 
             f" {player.goals:>2} {player.assists:>2} {player.points:>2} {player.injured_games_remaining:>6}"
         )
     return "\n".join(lines)
+
 

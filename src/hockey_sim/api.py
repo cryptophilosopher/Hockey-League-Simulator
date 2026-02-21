@@ -17,6 +17,8 @@ from .engine import GameResult
 from .league import LeagueSimulator
 from .models import (
     ALL_LINE_SLOTS,
+    DEFENSE_POSITIONS,
+    FORWARD_POSITIONS,
     GOALIE_POSITIONS,
     Player,
     Team,
@@ -57,6 +59,11 @@ class TeamNeedsSelection(BaseModel):
     mode: str = "auto"
     scores: dict[str, float] | None = None
 
+class TradeBlockSelection(BaseModel):
+    team_name: str | None = None
+    player_name: str
+    action: str = "toggle"
+
 
 class InboxResolveSelection(BaseModel):
     event_id: int
@@ -84,6 +91,7 @@ class TradeProposalSelection(BaseModel):
 
 class SimService:
     RUNTIME_SAVE_VERSION = 2
+    TRADE_PREF_VALUES = {"available", "shop", "untouchable"}
     SKATER_MILESTONES = {
         "games_played": [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1200, 1400, 1500],
         "goals": [100, 200, 300, 400, 500, 600, 700, 800],
@@ -126,6 +134,7 @@ class SimService:
         self.next_inbox_id: int = 1
         self.coach_pool: list[dict[str, Any]] = self._build_initial_coach_pool()
         self.milestone_keys_seen: set[str] = set()
+        self.trade_preferences_by_team: dict[str, dict[str, str]] = {}
 
     def _load_runtime_state(self) -> None:
         if not self.runtime_state_path.exists():
@@ -183,6 +192,41 @@ class SimService:
             self.milestone_keys_seen = {str(x) for x in raw_milestones if isinstance(x, str)}
         else:
             self.milestone_keys_seen = set()
+        parsed_prefs: dict[str, dict[str, str]] = {}
+        raw_trade_prefs = payload.get("trade_preferences_by_team", {})
+        if isinstance(raw_trade_prefs, dict):
+            for team_name, pref_map in raw_trade_prefs.items():
+                if not isinstance(team_name, str) or not isinstance(pref_map, dict):
+                    continue
+                team_rows: dict[str, str] = {}
+                for player_name, pref in pref_map.items():
+                    if not isinstance(player_name, str) or not isinstance(pref, str):
+                        continue
+                    pref_norm = pref.strip().lower()
+                    if pref_norm not in self.TRADE_PREF_VALUES:
+                        continue
+                    player_name = player_name.strip()
+                    if not player_name:
+                        continue
+                    team_rows[player_name] = pref_norm
+                if team_rows:
+                    parsed_prefs[team_name] = team_rows
+        # Legacy migration: old trade_block_by_team list maps to "shop".
+        raw_trade_block = payload.get("trade_block_by_team", {})
+        if isinstance(raw_trade_block, dict):
+            for team_name, names in raw_trade_block.items():
+                if not isinstance(team_name, str) or not isinstance(names, list):
+                    continue
+                team_rows = parsed_prefs.setdefault(team_name, {})
+                for name in names:
+                    if not isinstance(name, str):
+                        continue
+                    cleaned = name.strip()
+                    if not cleaned:
+                        continue
+                    if cleaned not in team_rows:
+                        team_rows[cleaned] = "shop"
+        self.trade_preferences_by_team = parsed_prefs
 
     def _save_runtime_state(self) -> None:
         payload = {
@@ -195,10 +239,16 @@ class SimService:
                 "auto_injury_moves": self.auto_injury_moves,
                 "game_mode": self.game_mode,
                 "daily_results": self.daily_results[-600:],
-                "news_feed": self.news_feed[:250],
+                "news_feed": self.news_feed[:5000],
                 "inbox_events": self.inbox_events[-300:],
                 "next_inbox_id": self.next_inbox_id,
                 "milestone_keys_seen": sorted(self.milestone_keys_seen)[:5000],
+                "trade_preferences_by_team": self.trade_preferences_by_team,
+                # Keep legacy key for backward compatibility with older builds.
+                "trade_block_by_team": {
+                    team_name: sorted([name for name, pref in pref_map.items() if pref == "shop"])
+                    for team_name, pref_map in self.trade_preferences_by_team.items()
+                },
             },
         }
         try:
@@ -238,6 +288,57 @@ class SimService:
         if not isinstance(payload, dict):
             return {"team": team.name, "scores": {}, "primary_need": "", "window": "balanced", "target_position": "ANY"}
         return payload
+
+    def _trade_preferences(self, team: Team, *, include_cpu_fallback: bool = True) -> dict[str, str]:
+        roster_names = {p.name for p in team.roster}
+        current = self.trade_preferences_by_team.get(team.name, {})
+        filtered: dict[str, str] = {}
+        if isinstance(current, dict):
+            for name, pref in current.items():
+                if name in roster_names and pref in self.TRADE_PREF_VALUES:
+                    filtered[name] = pref
+
+        # Default all roster players to available.
+        prefs: dict[str, str] = {name: "available" for name in roster_names}
+        prefs.update(filtered)
+
+        if include_cpu_fallback and team.name != self.user_team_name and not filtered:
+            # CPU fallback publishes a realistic board:
+            # - top core players as untouchable
+            # - weaker/surplus veterans as shop
+            ranked_core = sorted(team.roster, key=self._player_overall, reverse=True)
+            for p in ranked_core[:2]:
+                prefs[p.name] = "untouchable"
+
+            needs = self._team_needs(team)
+            primary_need = str(needs.get("primary_need", ""))
+            candidates = [p for p in team.roster if not p.is_injured and prefs.get(p.name) != "untouchable"]
+
+            def _score(player: Player) -> float:
+                overall = self._player_overall(player)
+                age = float(player.age)
+                cap_hit = float(getattr(player, "cap_hit", 0.0) or 0.0)
+                years_left = float(getattr(player, "contract_years_left", 0) or 0)
+                matches_primary_need = self._need_matches_position(primary_need, player.position) if primary_need else False
+                return (
+                    (0.95 if not matches_primary_need else -0.30)
+                    + age * 0.035
+                    + cap_hit * 0.12
+                    + years_left * 0.04
+                    - overall * 0.28
+                )
+
+            ranked_shop = sorted(candidates, key=_score, reverse=True)[:6]
+            for p in ranked_shop:
+                prefs[p.name] = "shop"
+        return prefs
+
+    def _trade_preference_for_player(self, team: Team, player_name: str) -> str:
+        return self._trade_preferences(team).get(player_name, "available")
+
+    def _trade_block_names(self, team: Team) -> list[str]:
+        prefs = self._trade_preferences(team)
+        return sorted([name for name, pref in prefs.items() if pref == "shop"])
 
     def _need_matches_position(self, need_key: str, position: str) -> bool:
         pos = position.upper()
@@ -415,6 +516,15 @@ class SimService:
                     "overall": round(self._player_overall(give_player), 2),
                     "cap_hit": round(float(getattr(give_player, "cap_hit", 0.0)), 2),
                     "years_left": int(getattr(give_player, "contract_years_left", 0) or 0),
+                    "stats": self._goalie_to_dict(give_player) if give_player.position == "G" else self._player_to_dict(give_player),
+                    "ratings": {
+                        "shooting": round(float(getattr(give_player, "shooting", 0.0)), 2),
+                        "playmaking": round(float(getattr(give_player, "playmaking", 0.0)), 2),
+                        "defense": round(float(getattr(give_player, "defense", 0.0)), 2),
+                        "goaltending": round(float(getattr(give_player, "goaltending", 0.0)), 2),
+                        "physical": round(float(getattr(give_player, "physical", 0.0)), 2),
+                        "durability": round(float(getattr(give_player, "durability", 0.0)), 2),
+                    },
                 },
                 "receive": {
                     "name": receive_player.name,
@@ -423,6 +533,15 @@ class SimService:
                     "overall": round(self._player_overall(receive_player), 2),
                     "cap_hit": round(float(getattr(receive_player, "cap_hit", 0.0)), 2),
                     "years_left": int(getattr(receive_player, "contract_years_left", 0) or 0),
+                    "stats": self._goalie_to_dict(receive_player) if receive_player.position == "G" else self._player_to_dict(receive_player),
+                    "ratings": {
+                        "shooting": round(float(getattr(receive_player, "shooting", 0.0)), 2),
+                        "playmaking": round(float(getattr(receive_player, "playmaking", 0.0)), 2),
+                        "defense": round(float(getattr(receive_player, "defense", 0.0)), 2),
+                        "goaltending": round(float(getattr(receive_player, "goaltending", 0.0)), 2),
+                        "physical": round(float(getattr(receive_player, "physical", 0.0)), 2),
+                        "durability": round(float(getattr(receive_player, "durability", 0.0)), 2),
+                    },
                 },
                 "delta": {
                     "overall": round(self._player_overall(receive_player) - self._player_overall(give_player), 2),
@@ -504,12 +623,24 @@ class SimService:
         if not healthy:
             return []
         healthy_goalies = len([p for p in healthy if p.position == "G"])
+        prefs = self._trade_preferences(team)
         out: list[Player] = []
         for player in healthy:
+            if prefs.get(player.name, "available") == "untouchable":
+                continue
             if player.position == "G" and healthy_goalies <= 1:
                 continue
             out.append(player)
-        out.sort(key=self._player_overall, reverse=not outgoing)
+        if outgoing:
+            out.sort(
+                key=lambda p: (
+                    0 if prefs.get(p.name, "available") == "shop" else 1,
+                    self._player_overall(p),
+                    -p.age,
+                )
+            )
+        else:
+            out.sort(key=self._player_overall, reverse=True)
         return out
 
     def _find_balanced_trade_offer(
@@ -630,6 +761,10 @@ class SimService:
         receive_player = next((p for p in partner_team.roster if p.name == receive_player_name), None)
         if give_player is None or receive_player is None:
             return {"ok": False, "reason": "player_not_found"}
+        if self._trade_preference_for_player(user_team, give_player.name) == "untouchable":
+            return {"ok": False, "reason": "player_untouchable"}
+        if self._trade_preference_for_player(partner_team, receive_player.name) == "untouchable":
+            return {"ok": False, "reason": "partner_player_untouchable"}
         if give_player.is_injured or receive_player.is_injured:
             return {"ok": False, "reason": "injured_player_in_trade"}
         if give_player.position == "G":
@@ -1031,7 +1166,11 @@ class SimService:
             if bool(event.get("resolved", False)):
                 continue
             expires_day = int(event.get("expires_day", 0))
-            if expires_day > 0 and expires_day < int(day_num):
+            event_type = str(event.get("type", ""))
+            expires_now = expires_day > 0 and expires_day < int(day_num)
+            if event_type in {"injury_auto", "injury_return_auto"}:
+                expires_now = expires_day > 0 and expires_day <= int(day_num)
+            if expires_now:
                 choice_id = str(event.get("auto_choice_id", "")) or "ignore"
                 self._resolve_inbox_event_internal(event, choice_id=choice_id, auto=True)
                 changed = True
@@ -1077,8 +1216,21 @@ class SimService:
         if roll < 0.45 and len(self.simulator.teams) > 1:
             partners = [t for t in self.simulator.teams if t.name != team.name]
             self.simulator._rng.shuffle(partners)
+            preferred_block = set(self._trade_block_names(team))
             for partner in partners:
                 offer = self._find_balanced_trade_offer(requesting_team=team, partner_team=partner)
+                if offer is not None and preferred_block:
+                    give_player, _, _, _ = offer
+                    if give_player.name not in preferred_block:
+                        offer = None
+                if offer is None and preferred_block:
+                    relaxed = self._find_cpu_trade_offer_relaxed(requesting_team=team, partner_team=partner)
+                    if relaxed is not None:
+                        gp, rp, ge, pe = relaxed
+                        if gp.name in preferred_block:
+                            offer = (gp, rp, ge, pe)
+                if offer is None:
+                    offer = self._find_cpu_trade_offer_relaxed(requesting_team=team, partner_team=partner)
                 if offer is None:
                     continue
                 give_player, receive_player, _, _ = offer
@@ -1242,6 +1394,54 @@ class SimService:
         returning_next = len([p for p in team.roster if int(p.injured_games_remaining) == 1])
         return active_now + returning_next
 
+    def _snapshot_team_games_played(self) -> dict[str, int]:
+        return {
+            rec.team.name: int(rec.games_played)
+            for rec in self.simulator.get_standings()
+        }
+
+    def _validate_games_played_bounds(self) -> None:
+        # In regular season, no team can have played more games than current day.
+        # This catches corrupted saves where standings drift far beyond day progression.
+        max_allowed = int(self.simulator.current_day)
+        for rec in self.simulator.get_standings():
+            gp = int(rec.games_played)
+            if gp > max_allowed:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Save data appears inconsistent: {rec.team.name} has {gp} GP on day "
+                        f"{max_allowed}. Reset or restore a recent backup save."
+                    ),
+                )
+
+    def _validate_loaded_state_consistency(self) -> None:
+        # Fail fast on read if persisted standings are impossible for the current day.
+        # This prevents UI from showing contradictory data after reload.
+        self._validate_games_played_bounds()
+
+    def _validate_one_day_gp_progression(self, before_gp: dict[str, int], day_num: int) -> None:
+        standings = self.simulator.get_standings()
+        bad: list[str] = []
+        for rec in standings:
+            team_name = rec.team.name
+            prev = int(before_gp.get(team_name, rec.games_played))
+            now = int(rec.games_played)
+            delta = now - prev
+            if delta < 0 or delta > 1:
+                bad.append(f"{team_name} (delta {delta})")
+        if bad:
+            sample = ", ".join(bad[:4])
+            if len(bad) > 4:
+                sample += ", ..."
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    f"Simulation integrity check failed on day {day_num}: invalid GP progression for "
+                    f"{sample}. Reset or restore backup save."
+                ),
+            )
+
     def _auto_send_down_for_overflow(self, team: Team, *, reason: str = "roster_overflow", returning_name: str = "") -> list[str]:
         demoted: list[str] = []
         while self._active_roster_count(team.name) > Team.MAX_ROSTER_SIZE:
@@ -1353,7 +1553,7 @@ class SimService:
             "day": int(day or 0),
         }
         self.news_feed.insert(0, row)
-        self.news_feed = self.news_feed[:250]
+        self.news_feed = self.news_feed[:5000]
         self._save_runtime_state()
 
     def _injury_news_from_results(self, day_num: int, results: list[GameResult]) -> None:
@@ -1361,16 +1561,22 @@ class SimService:
             for inj in result.home_injuries:
                 self._add_news(
                     kind="injury",
-                    headline=f"Injury: {inj.player.name} ({result.home.name})",
-                    details=f"{inj.injury_type} | {inj.injury_status} | Expected out {inj.games_out} games after vs {result.away.name}.",
+                    headline=f"Injury: {inj.player.name} ({inj.player.position}, {result.home.name})",
+                    details=(
+                        f"{inj.player.position} | {inj.injury_type} | {inj.injury_status} | "
+                        f"Expected out {inj.games_out} games after vs {result.away.name}."
+                    ),
                     team=result.home.name,
                     day=day_num,
                 )
             for inj in result.away_injuries:
                 self._add_news(
                     kind="injury",
-                    headline=f"Injury: {inj.player.name} ({result.away.name})",
-                    details=f"{inj.injury_type} | {inj.injury_status} | Expected out {inj.games_out} games after at {result.home.name}.",
+                    headline=f"Injury: {inj.player.name} ({inj.player.position}, {result.away.name})",
+                    details=(
+                        f"{inj.player.position} | {inj.injury_type} | {inj.injury_status} | "
+                        f"Expected out {inj.games_out} games after at {result.home.name}."
+                    ),
                     team=result.away.name,
                     day=day_num,
                 )
@@ -1420,31 +1626,25 @@ class SimService:
                             team=team.name,
                             day=self.simulator.current_day,
                         )
-                    self._add_inbox_event(
-                        day_num=day_num,
-                        event_type="injury_auto",
-                        title=f"Injury Update: {inj.player.name}",
-                        details=(
-                            f"{inj.injury_type} | {inj.injury_status} | Expected out {inj.games_out} games. "
-                            f"{action_detail}"
-                        ),
-                        options=[
-                            {
-                                "id": "acknowledge",
-                                "label": "Read",
-                                "description": "Dismiss this informational update.",
-                            }
-                        ],
-                        payload={
-                            "key": payload_key,
-                            "player_name": inj.player.name,
-                            "injury_type": inj.injury_type,
-                            "injury_status": inj.injury_status,
-                            "games_out": inj.games_out,
-                        },
-                        expires_in_days=4,
-                    )
-                    continue
+                self._add_inbox_event(
+                    day_num=day_num,
+                    event_type="injury_auto",
+                    title=f"Injury Update: {inj.player.name}",
+                    details=(
+                        f"{inj.injury_type} | {inj.injury_status} | Expected out {inj.games_out} games. "
+                        f"{action_detail}"
+                    ),
+                    options=[],
+                    payload={
+                        "key": payload_key,
+                        "player_name": inj.player.name,
+                        "injury_type": inj.injury_type,
+                        "injury_status": inj.injury_status,
+                        "games_out": inj.games_out,
+                    },
+                    expires_in_days=1,
+                )
+                continue
                 payload_key = f"{inj.player.player_id}:{day_num}:injury"
                 if self._inbox_event_exists(
                     event_type="injury_alert",
@@ -1523,13 +1723,7 @@ class SimService:
                         f"{p.name} ({p.injury_type or 'Injury'} | {p.injury_status or 'IR'}) is expected back next game day. "
                         f"{move_text}"
                     ),
-                    options=[
-                        {
-                            "id": "acknowledge",
-                            "label": "Read",
-                            "description": "Dismiss this informational update.",
-                        }
-                    ],
+                    options=[],
                     payload={
                         "key": payload_key,
                         "player_name": p.name,
@@ -1537,7 +1731,7 @@ class SimService:
                         "injury_status": p.injury_status,
                         "demoted": demoted,
                     },
-                    expires_in_days=3,
+                    expires_in_days=1,
                 )
                 continue
             payload_key = f"{p.player_id}:{day_num}:returning"
@@ -1579,6 +1773,36 @@ class SimService:
                 },
                 expires_in_days=2,
                 auto_choice_id="acknowledge",
+            )
+
+    def _coach_retirement_news_from_offseason(
+        self,
+        *,
+        completed_season: int,
+        retired_coaches: list[dict[str, object]],
+    ) -> None:
+        if not isinstance(retired_coaches, list):
+            return
+        display_season = completed_season + 1
+        for row in retired_coaches:
+            if not isinstance(row, dict):
+                continue
+            team = str(row.get("team", "")).strip()
+            old_name = str(row.get("old_name", "")).strip()
+            new_name = str(row.get("new_name", "")).strip()
+            old_age = int(row.get("old_age", 0) or 0)
+            if not team or not old_name or not new_name:
+                continue
+            self._add_news(
+                kind="coach_change",
+                headline=f"Coach Retirement: {old_name} ({team})",
+                details=(
+                    f"{old_name} retired at age {old_age}. "
+                    f"{team} hired {new_name} for Season {display_season}."
+                ),
+                team=team,
+                season=display_season,
+                day=0,
             )
 
     def _draft_news_from_offseason(
@@ -1711,7 +1935,7 @@ class SimService:
                 )
 
     def news(self, limit: int = 80) -> list[dict[str, Any]]:
-        return [dict(row) for row in self.news_feed[: max(1, min(limit, 250))]]
+        return [dict(row) for row in self.news_feed[: max(1, min(limit, 5000))]]
 
     def transactions(self, team_name: str | None = None, limit: int = 200, season: int | None = None) -> list[dict[str, Any]]:
         chosen = (team_name or self.user_team_name).strip()
@@ -1742,7 +1966,7 @@ class SimService:
                 out.append(dict(row))
             elif chosen_l in headline_l or chosen_l in details_l:
                 out.append(dict(row))
-            if len(out) >= max(1, min(limit, 500)):
+            if len(out) >= max(1, min(limit, 5000)):
                 break
         return out
 
@@ -1751,42 +1975,64 @@ class SimService:
         team = self.simulator.get_team(chosen)
         if team is None:
             raise HTTPException(status_code=404, detail="Team not found")
+        trade_block = set(self._trade_block_names(team))
+        my_prefs = self._trade_preferences(team)
         partner_name = (partner_team or "").strip()
         partners = sorted([t.name for t in self.simulator.teams if t.name != team.name])
-        my_assets = [
-            {
-                "name": p.name,
-                "position": p.position,
-                "age": p.age,
-                "overall": round(self._player_overall(p), 2),
-                "trade_value": round(self._trade_player_value(p, team), 3),
+
+        def _asset_row(player: Player, owner: Team, pref: str, on_block: bool = False) -> dict[str, Any]:
+            skater = self._player_to_dict(player)
+            goalie = self._goalie_to_dict(player)
+            is_goalie = player.position == "G"
+            return {
+                "name": player.name,
+                "position": player.position,
+                "age": player.age,
+                "overall": round(self._player_overall(player), 2),
+                "trade_value": round(self._trade_player_value(player, owner), 3),
+                "on_trade_block": bool(on_block),
+                "trade_preference": pref,
+                "gp": int(goalie.get("gp", 0)) if is_goalie else int(skater.get("gp", 0)),
+                "g": int(skater.get("g", 0)) if not is_goalie else 0,
+                "a": int(skater.get("a", 0)) if not is_goalie else 0,
+                "p": int(skater.get("p", 0)) if not is_goalie else 0,
+                "w": int(goalie.get("w", 0)) if is_goalie else 0,
+                "l": int(goalie.get("l", 0)) if is_goalie else 0,
+                "so": int(goalie.get("so", 0)) if is_goalie else 0,
+                "gaa": float(goalie.get("gaa", 0.0)) if is_goalie else 0.0,
+                "sv_pct": float(goalie.get("sv_pct", 0.0)) if is_goalie else 0.0,
             }
+
+        my_assets = [
+            _asset_row(p, team, my_prefs.get(p.name, "available"), p.name in trade_block)
             for p in self._eligible_trade_players(team, outgoing=True)
         ]
         partner_assets: list[dict[str, Any]] = []
         partner_needs: dict[str, Any] = {}
+        partner_trade_block: list[str] = []
+        partner_prefs: dict[str, str] = {}
         if partner_name:
             partner = self.simulator.get_team(partner_name)
             if partner is not None:
+                partner_prefs = self._trade_preferences(partner)
                 partner_assets = [
-                    {
-                        "name": p.name,
-                        "position": p.position,
-                        "age": p.age,
-                        "overall": round(self._player_overall(p), 2),
-                        "trade_value": round(self._trade_player_value(p, partner), 3),
-                    }
+                    _asset_row(p, partner, partner_prefs.get(p.name, "available"))
                     for p in self._eligible_trade_players(partner, outgoing=False)
                 ]
                 partner_needs = self._team_needs(partner)
+                partner_trade_block = self._trade_block_names(partner)
         return {
             "team": team.name,
             "partners": partners,
             "my_assets": my_assets,
+            "my_trade_block": sorted(trade_block),
+            "my_trade_preferences": my_prefs,
             "my_needs": self._team_needs(team),
             "partner_team": partner_name,
             "partner_assets": partner_assets,
             "partner_needs": partner_needs,
+            "partner_trade_block": partner_trade_block,
+            "partner_trade_preferences": partner_prefs,
         }
 
     def propose_trade(
@@ -1832,6 +2078,10 @@ class SimService:
         receive = next((p for p in partner.roster if p.name == receive_player.strip()), None)
         if give is None or receive is None:
             return {"ok": False, "reason": "player_not_found"}
+        if self._trade_preference_for_player(team, give.name) == "untouchable":
+            return {"ok": False, "reason": "player_untouchable"}
+        if self._trade_preference_for_player(partner, receive.name) == "untouchable":
+            return {"ok": False, "reason": "partner_player_untouchable"}
         if give.is_injured or receive.is_injured:
             return {"ok": False, "reason": "injured_player_in_trade"}
         insight = self._trade_offer_insight(team, partner, give, receive)
@@ -1876,6 +2126,7 @@ class SimService:
             pool.append(
                 {
                     "name": name,
+                    "age": int(58 + min(12, max(0, hist["cups"] * 2 + hist["w"] // 160))),
                     "rating": rating,
                     "style": style,
                     "offense": rating,
@@ -1893,6 +2144,7 @@ class SimService:
             pool.append(
                 {
                     "name": self.simulator._generate_coach_name(),
+                    "age": int(self.simulator._rng.randint(42, 58)),
                     "rating": rating,
                     "style": self.simulator._rating_to_style(rating),
                     "offense": self.simulator._generate_coach_rating(lower=2.0, upper=4.9),
@@ -1923,6 +2175,18 @@ class SimService:
             )
         )
 
+    def _coach_overall_record(self, coach_name: str) -> tuple[int, int, int]:
+        totals = self._coach_history_totals().get(coach_name, {"w": 0, "l": 0, "otl": 0})
+        w = int(totals.get("w", 0))
+        l = int(totals.get("l", 0))
+        otl = int(totals.get("otl", 0))
+        for rec in self.simulator.get_standings():
+            if str(rec.team.coach_name) == coach_name:
+                w += int(rec.wins)
+                l += int(rec.losses)
+                otl += int(rec.ot_losses)
+        return w, l, otl
+
     def _ensure_coach_pool_depth(self, min_size: int = 14) -> None:
         active = self._active_coach_names()
         seen: set[str] = set()
@@ -1943,6 +2207,7 @@ class SimService:
             self.coach_pool.append(
                 {
                     "name": name,
+                    "age": int(self.simulator._rng.randint(42, 58)),
                     "rating": rating,
                     "style": self.simulator._rating_to_style(rating),
                     "offense": self.simulator._generate_coach_rating(lower=2.0, upper=4.9),
@@ -1973,6 +2238,7 @@ class SimService:
         old_rating = float(team.coach_rating)
         fired_row = {
             "name": old_name,
+            "age": int(getattr(team, "coach_age", 52)),
             "rating": round(old_rating, 2),
             "style": team.coach_style,
             "offense": round(team.coach_offense, 2),
@@ -2011,6 +2277,7 @@ class SimService:
 
         self.coach_pool = [c for c in self.coach_pool if str(c.get("name", "")) != str(hire.get("name", ""))]
         team.coach_name = str(hire.get("name", "Coach"))
+        team.coach_age = int(hire.get("age", self.simulator._rng.randint(42, 58)))
         team.coach_rating = float(hire.get("rating", 3.0))
         team.coach_style = str(hire.get("style", "balanced"))
         team.coach_offense = float(hire.get("offense", team.coach_rating))
@@ -2681,6 +2948,16 @@ class SimService:
 
         plus_minus = int(round((total_p / gp - 0.55) * gp * 0.34 + team_goal_diff * 0.18))
         pim = int(round(gp * (0.24 + player.physical * 0.40)))
+        if total_gp_raw <= 0:
+            shots = 0
+            shot_pct = 0.0
+            ppg = 0
+            ppa = 0
+            shg = 0
+            sha = 0
+            toi_per_game = 0.0
+            plus_minus = 0
+            pim = 0
         return {
             "team": player.team_name,
             "name": player.name,
@@ -2967,8 +3244,12 @@ class SimService:
 
         return {
             "team": team.name,
+            "total_count": len(team.roster),
+            "active_count": len([p for p in team.roster if not p.is_injured]),
+            "injured_count": len([p for p in team.roster if p.is_injured]),
             "coach": {
                 "name": team.coach_name,
+                "age": int(getattr(team, "coach_age", 52)),
                 "rating": round(team.coach_rating, 2),
                 "style": team.coach_style,
             },
@@ -3039,6 +3320,7 @@ class SimService:
         return out
 
     def meta(self) -> dict[str, Any]:
+        self._validate_loaded_state_consistency()
         teams = [t.name for t in self.simulator.teams]
         user_team = self.simulator.get_team(self.user_team_name) if self.user_team_name else None
         in_playoffs = self.simulator.has_playoff_session()
@@ -3359,6 +3641,55 @@ class SimService:
         payload = self.simulator.set_team_needs_override(chosen, mode=mode, scores=scores)
         return {"ok": True, **payload}
 
+    def trade_block(self, team_name: str | None = None) -> dict[str, Any]:
+        chosen = (team_name or self.user_team_name).strip()
+        if not chosen:
+            raise HTTPException(status_code=400, detail="No team selected")
+        team = self.simulator.get_team(chosen)
+        if team is None:
+            raise HTTPException(status_code=404, detail="Team not found")
+        names = self._trade_block_names(team)
+        preferences = self._trade_preferences(team)
+        return {"team": team.name, "players": names, "preferences": preferences}
+
+    def update_trade_block(self, team_name: str | None, player_name: str, action: str = "toggle") -> dict[str, Any]:
+        chosen = (team_name or self.user_team_name).strip()
+        if not chosen:
+            raise HTTPException(status_code=400, detail="No team selected")
+        team = self.simulator.get_team(chosen)
+        if team is None:
+            raise HTTPException(status_code=404, detail="Team not found")
+        if chosen != self.user_team_name:
+            raise HTTPException(status_code=403, detail="Can only edit trade block for your team")
+        player = player_name.strip()
+        if not player:
+            raise HTTPException(status_code=400, detail="player_name is required")
+        roster_names = {p.name for p in team.roster}
+        if player not in roster_names:
+            raise HTTPException(status_code=404, detail="Player not found on roster")
+        prefs = self._trade_preferences(team, include_cpu_fallback=False)
+        op = str(action or "toggle").strip().lower()
+        current_pref = prefs.get(player, "available")
+        if op in {"add", "shop"}:
+            prefs[player] = "shop"
+        elif op in {"remove", "available"}:
+            prefs[player] = "available"
+        elif op == "untouchable":
+            prefs[player] = "untouchable"
+        elif op == "toggle":
+            if current_pref == "shop":
+                prefs[player] = "available"
+            elif current_pref == "available":
+                prefs[player] = "shop"
+            else:
+                prefs[player] = "available"
+        else:
+            raise HTTPException(status_code=400, detail="action must be add/remove/toggle/shop/available/untouchable")
+        self.trade_preferences_by_team[team.name] = dict(sorted(prefs.items(), key=lambda x: x[0]))
+        shop = sorted([name for name, pref in prefs.items() if pref == "shop"])
+        self._save_runtime_state()
+        return {"ok": True, "team": team.name, "players": shop, "preferences": prefs}
+
     def _current_career_row(self, player: Player) -> dict[str, Any]:
         country_code = str(player.birth_country_code or "CA").upper()
         standings = {r.team.name: r for r in self.simulator.get_standings()}
@@ -3426,6 +3757,7 @@ class SimService:
                     "team": team.name,
                     "name": str(hof_entry.get("name", player_name)),
                     "jersey_number": None,
+                    "overall": 0.0,
                     "age": age,
                     "position": position,
                     "country": "",
@@ -3489,6 +3821,7 @@ class SimService:
                 "team": player.team_name,
                 "name": player.name,
                 "jersey_number": player.jersey_number,
+                "overall": round(self._player_overall(player), 2),
                 "age": player.age,
                 "position": player.position,
                 "country": player.birth_country,
@@ -3587,7 +3920,9 @@ class SimService:
 
         return {
             "team": team.name,
+            "total_count": len(team.roster),
             "active_count": len([p for p in team.roster if not p.is_injured]),
+            "injured_count": len([p for p in team.roster if p.is_injured]),
             "max_active": Team.MAX_ROSTER_SIZE,
             "projected_next_day_active": self._projected_active_count_next_day(team.name),
             "injuries": injuries,
@@ -4819,6 +5154,8 @@ class SimService:
 
         if not self.simulator.is_complete():
             day_num = self.simulator.current_day
+            self._validate_games_played_bounds()
+            gp_before = self._snapshot_team_games_played()
             self._expire_inbox_events(day_num=day_num)
             user_team_before = self._user_team()
             injury_before = {
@@ -4832,6 +5169,7 @@ class SimService:
                 use_user_lines=self.override_coach_for_lines,
                 use_user_strategy=self.override_coach_for_strategy,
             )
+            self._validate_one_day_gp_progression(gp_before, day_num)
             user_team_after = self._user_team()
             returned_players: list[str] = []
             if user_team_after is not None:
@@ -4919,6 +5257,9 @@ class SimService:
         drafted_details = offseason.get("drafted_details", {})
         if isinstance(drafted_details, dict):
             self._draft_news_from_offseason(completed_season=completed, drafted_details=drafted_details)
+        retired_coaches = offseason.get("retired_coaches", [])
+        if isinstance(retired_coaches, list):
+            self._coach_retirement_news_from_offseason(completed_season=completed, retired_coaches=retired_coaches)
         retired_numbers = offseason.get("retired_numbers", [])
         if isinstance(retired_numbers, list):
             self._retired_number_news_from_offseason(completed_season=completed, retired_numbers=retired_numbers)
@@ -5180,6 +5521,9 @@ class SimService:
             "pk_pct": round(rec.pk_pct, 3) if rec is not None else 0.0,
         }
         payload["coach"]["record"] = payload["team_summary"]["record"]
+        coach_w, coach_l, coach_otl = self._coach_overall_record(team.coach_name)
+        payload["coach"]["overall_record"] = f"{coach_w}-{coach_l}-{coach_otl}"
+        payload["coach"]["cups"] = self._coach_cup_count(team.coach_name)
         payload["special_teams"] = {
             "pp_pct": round(rec.pp_pct, 3) if rec is not None else 0.0,
             "pk_pct": round(rec.pk_pct, 3) if rec is not None else 0.0,
@@ -5192,6 +5536,37 @@ class SimService:
             payload["news"] = [row for row in season_news if int(row.get("day", 0)) == latest_news_day][:60]
             # Pick top story from the latest few days to reduce repetitive injury-only headlines.
             story_candidates = [row for row in season_news if int(row.get("day", 0)) >= max(0, latest_news_day - 2)]
+            awards_snapshot = self.awards(team_name=team.name)
+            rec_chases = awards_snapshot.get("record_chases", {}) if isinstance(awards_snapshot, dict) else {}
+            league_chases = rec_chases.get("league", []) if isinstance(rec_chases, dict) else []
+            franchise_chases = rec_chases.get("franchise", []) if isinstance(rec_chases, dict) else []
+            for bucket, label in ((league_chases, "League"), (franchise_chases, "Franchise")):
+                if isinstance(bucket, list) and bucket:
+                    chase = bucket[0]
+                    if isinstance(chase, dict):
+                        gap = int(chase.get("gap", 999))
+                        if gap <= 5:
+                            story_candidates.append(
+                                {
+                                    "kind": "milestone",
+                                    "headline": (
+                                        f"{label} Record Watch: {str(chase.get('challenger', 'Player'))} "
+                                        f"is {gap} away from {str(chase.get('category', 'a record'))}."
+                                    ),
+                                    "details": (
+                                        f"Current {chase.get('challenger_value', 0)} | "
+                                        f"Record {chase.get('record_value', 0)} by {str(chase.get('record_holder', '-'))}."
+                                    ),
+                                    "team": team.name,
+                                    "season": int(self.simulator.season_number),
+                                    "day": int(self.simulator.current_day),
+                                }
+                            )
+            milestones = awards_snapshot.get("milestones", []) if isinstance(awards_snapshot, dict) else []
+            if isinstance(milestones, list) and milestones:
+                latest_milestone = milestones[0]
+                if isinstance(latest_milestone, dict):
+                    story_candidates.append(dict(latest_milestone))
             major_or_non_injury = []
             for row in story_candidates:
                 kind = str(row.get("kind", "")).lower().strip()
@@ -5605,6 +5980,18 @@ def team_needs(team: str | None = None) -> dict[str, Any]:
 def set_team_needs(payload: TeamNeedsSelection) -> dict[str, Any]:
     with service._lock:
         return service.set_team_needs(team_name=payload.team_name, mode=payload.mode, scores=payload.scores)
+
+
+@app.get("/api/trade-block")
+def trade_block(team: str | None = None) -> dict[str, Any]:
+    with service._lock:
+        return service.trade_block(team_name=team)
+
+
+@app.post("/api/trade-block")
+def update_trade_block(payload: TradeBlockSelection) -> dict[str, Any]:
+    with service._lock:
+        return service.update_trade_block(team_name=payload.team_name, player_name=payload.player_name, action=payload.action)
 
 
 @app.get("/api/news")
