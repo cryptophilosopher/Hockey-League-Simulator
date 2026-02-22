@@ -268,6 +268,13 @@ body {
   gap: 10px;
 }
 
+.latest-game-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
 .inline-controls {
   display: flex;
   gap: 8px;
@@ -287,6 +294,12 @@ body {
   padding: 6px 10px;
   background: #f2f7ff;
   cursor: pointer;
+}
+
+.inline-controls button.active {
+  background: #1d5eaa;
+  border-color: #1d5eaa;
+  color: #ffffff;
 }
 
 .btn-chip {
@@ -748,6 +761,18 @@ table.banded tbody tr.row-clickable:hover td {
   gap: 6px;
 }
 
+.score-head-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 10px;
+  align-items: start;
+}
+
+.score-head-left {
+  display: grid;
+  gap: 6px;
+}
+
 .series-line-bold {
   font-size: 13px;
   font-weight: 700;
@@ -787,6 +812,87 @@ table.banded tbody tr.row-clickable:hover td {
 
 .score-card .results {
   max-height: 180px;
+}
+
+.game-detail-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 10px;
+  align-items: start;
+}
+
+.stars-block {
+  border: 1px solid #d7e4f4;
+  border-radius: 10px;
+  background: #f8fbff;
+  padding: 8px 10px;
+}
+
+.stars-title {
+  font-weight: 700;
+  color: #17395f;
+  margin-bottom: 6px;
+}
+
+.stars-list {
+  display: grid;
+  gap: 6px;
+}
+
+.star-row {
+  display: grid;
+  grid-template-columns: 58px 1fr;
+  gap: 8px;
+  align-items: start;
+  border-top: 1px dashed #d5e3f4;
+  padding-top: 6px;
+}
+
+.star-row:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.star-rank {
+  color: #b38a1c;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+}
+
+.star-player {
+  font-weight: 600;
+  color: #15365a;
+}
+
+.star-stats {
+  font-size: 12px;
+  color: #5f7593;
+}
+
+.stars-top-right {
+  min-width: 0;
+  padding: 7px 9px;
+  align-self: start;
+  margin-top: 0;
+}
+
+.stars-top-right .star-row {
+  grid-template-columns: 48px 1fr;
+  gap: 6px;
+}
+
+.narrative-full {
+  max-width: 100%;
+}
+
+@media (max-width: 980px) {
+  .score-head-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .game-detail-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .home-matchup {
@@ -847,6 +953,15 @@ table.banded tbody tr.row-clickable:hover td {
   object-fit: contain;
   flex: 0 0 auto;
   margin-top: 1px;
+}
+
+.mini-logo-large {
+  width: 46px;
+  height: 46px;
+}
+
+.game-meta {
+  font-size: 13px;
 }
 
 .score-values {

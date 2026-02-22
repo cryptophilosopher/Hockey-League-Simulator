@@ -7,30 +7,11 @@ import random
 import shutil
 from typing import Any
 
+from .config import PLAYER_BIRTH_COUNTRIES
 from .engine import GameResult, STRATEGY_EFFECTS, simulate_game
 from .models import DEFENSE_POSITIONS, FORWARD_POSITIONS, GOALIE_POSITIONS, Player, Team, TeamRecord
-from .names import NameGenerator
+from .names import COACH_FIRST_NAMES, COACH_LAST_NAMES, NameGenerator
 from .schedule import build_round_robin_days
-
-PLAYER_BIRTH_COUNTRIES: tuple[tuple[str, str, float], ...] = (
-    ("Canada", "CA", 0.34),
-    ("United States", "US", 0.225),
-    ("Sweden", "SE", 0.08),
-    ("Finland", "FI", 0.06),
-    ("Russia", "RU", 0.08),
-    ("Czechia", "CZ", 0.05),
-    ("Slovakia", "SK", 0.03),
-    ("Germany", "DE", 0.03),
-    ("Switzerland", "CH", 0.03),
-    ("Latvia", "LV", 0.02),
-    ("Denmark", "DK", 0.02),
-    ("Lithuania", "LT", 0.01),
-    ("Norway", "NO", 0.005),
-    ("Belarus", "BY", 0.005),
-    ("Slovenia", "SI", 0.005),
-    ("Austria", "AT", 0.005),
-    ("France", "FR", 0.005),
-)
 
 
 @dataclass(slots=True)
@@ -42,80 +23,8 @@ class LeagueSimulator:
     SAVE_VERSION = 2
     DRAFT_FOCUS_OPTIONS = ("auto", "F", "C", "LW", "RW", "D", "G")
     TEAM_NEED_KEYS = ("top6_f", "top4_d", "starter_g", "depth_f", "depth_d", "cap_relief")
-    COACH_FIRST_NAMES = (
-        "Alex",
-        "Martin",
-        "Chris",
-        "Ryan",
-        "Mike",
-        "Craig",
-        "Derek",
-        "Pat",
-        "Scott",
-        "John",
-        "Barry",
-        "Paul",
-        "Todd",
-        "Dan",
-        "Rick",
-        "Andre",
-        "Sergei",
-        "Jon",
-        "Ken",
-        "Brent",
-        "Claude",
-        "Bruce",
-        "Lindy",
-        "Jacques",
-        "Patrick",
-        "Luke",
-        "Travis",
-        "Marco",
-        "Pascal",
-        "Guy",
-        "Dean",
-        "Kevin",
-        "Jared",
-        "Randy",
-        "Dave",
-    )
-    COACH_LAST_NAMES = (
-        "Sullivan",
-        "Cooper",
-        "Cassidy",
-        "DeBoer",
-        "Brindamour",
-        "Montgomery",
-        "Ruff",
-        "Laviolette",
-        "Boudreau",
-        "Quinn",
-        "Woodcroft",
-        "Gallant",
-        "Berube",
-        "Tortorella",
-        "Keefe",
-        "Maurice",
-        "Hynes",
-        "Martin",
-        "Carbery",
-        "Knoblauch",
-        "Hakstol",
-        "Richardson",
-        "MacLean",
-        "Muller",
-        "Gonchar",
-        "Leach",
-        "Yeo",
-        "Evason",
-        "Lemaire",
-        "Vigneault",
-        "Babcock",
-        "Hitchcock",
-        "Sutter",
-        "Hartley",
-        "MacTavish",
-    )
+    COACH_FIRST_NAMES = COACH_FIRST_NAMES
+    COACH_LAST_NAMES = COACH_LAST_NAMES
     def __init__(
         self,
         teams: list[Team],
@@ -303,7 +212,8 @@ class LeagueSimulator:
             "pending_playoff_days": self.pending_playoff_days,
             "pending_playoff_day_index": self.pending_playoff_day_index,
         }
-        self._write_json_with_backup(self.state_path, state)
+        # Routine autosave is called frequently during sim; skip per-save backup copy for speed.
+        self._write_json_with_backup(self.state_path, state, with_backup=False)
 
     def _normalize_need_scores(self, raw_scores: Any) -> dict[str, float]:
         scores: dict[str, float] = {}
@@ -403,8 +313,8 @@ class LeagueSimulator:
         }
         self._write_json_with_backup(self.hall_of_fame_path, payload)
 
-    def _write_json_with_backup(self, path: Path, payload: Any) -> None:
-        if path.exists():
+    def _write_json_with_backup(self, path: Path, payload: Any, *, with_backup: bool = True) -> None:
+        if with_backup and path.exists():
             backup = path.with_suffix(path.suffix + ".bak")
             try:
                 shutil.copy2(path, backup)
@@ -466,6 +376,7 @@ class LeagueSimulator:
             "cap_hit": player.cap_hit,
             "contract_type": player.contract_type,
             "is_rfa": player.is_rfa,
+            "free_agent_origin_team": player.free_agent_origin_team,
             "career_seasons": player.career_seasons,
         }
 
@@ -521,6 +432,7 @@ class LeagueSimulator:
             cap_hit=float(raw.get("cap_hit", 1.2)),
             contract_type=str(raw.get("contract_type", "entry")),
             is_rfa=bool(raw.get("is_rfa", True)),
+            free_agent_origin_team=str(raw.get("free_agent_origin_team", "")),
             career_seasons=list(raw.get("career_seasons", [])),
         )
 
@@ -671,6 +583,7 @@ class LeagueSimulator:
         return self._rng.choice(["balanced", "aggressive", "defensive"])
 
     def _ensure_team_coaches(self) -> None:
+        ages_before = [int(getattr(t, "coach_age", 0) or 0) for t in self.teams]
         for team in self.teams:
             had_default_name = (not team.coach_name) or (team.coach_name == "Staff Coach")
             if had_default_name:
@@ -695,6 +608,13 @@ class LeagueSimulator:
             if int(getattr(team, "coach_age", 0)) <= 0:
                 team.coach_age = int(self._rng.randint(43, 59))
             team.coach_style = team.coach_style if team.coach_style in STRATEGY_EFFECTS else self._rating_to_style(team.coach_rating)
+
+        # Legacy-save repair: older saves had no coach age and loaded every coach as 52 (or 53 after one offseason).
+        # If all coach ages are identical and in that fallback band, spread them to realistic NHL-style ranges.
+        unique_ages_before = {a for a in ages_before if a > 0}
+        if len(self.teams) >= 6 and len(unique_ages_before) == 1 and next(iter(unique_ages_before)) in {52, 53}:
+            for team in self.teams:
+                team.coach_age = int(self._rng.randint(43, 63))
 
     def _coach_retirement_probability(self, team: Team) -> float:
         age = int(max(1, team.coach_age))
@@ -1552,8 +1472,9 @@ class LeagueSimulator:
                 "complete": True,
                 "playoffs": self.pending_playoffs,
             }
-        # Playoff games are pre-simulated in _run_playoffs/_simulate_playoff_series,
-        # which already advances recovery game-by-game. Do not decay again on reveal.
+        # Decay injury timers per revealed playoff day so UI injury status stays in sync.
+        # Playoffs are pre-simulated for outcomes, but user-facing recovery must still tick.
+        self._advance_recovery_day()
         self._ensure_team_player_numbers()
         day = self.pending_playoff_days[self.pending_playoff_day_index]
         self.pending_playoff_day_index += 1
@@ -1851,22 +1772,29 @@ class LeagueSimulator:
         )
 
     def _clear_season_player_stats(self) -> None:
+        def _reset(player: Player) -> None:
+            player.games_played = 0
+            player.goals = 0
+            player.assists = 0
+            player.injuries = 0
+            player.games_missed_injury = 0
+            player.injured_games_remaining = 0
+            player.goalie_games = 0
+            player.goalie_wins = 0
+            player.goalie_losses = 0
+            player.goalie_ot_losses = 0
+            player.goalie_shutouts = 0
+            player.shots_against = 0
+            player.saves = 0
+            player.goals_against = 0
+
         for team in self.teams:
             for player in [*team.roster, *team.minor_roster]:
-                player.games_played = 0
-                player.goals = 0
-                player.assists = 0
-                player.injuries = 0
-                player.games_missed_injury = 0
-                player.injured_games_remaining = 0
-                player.goalie_games = 0
-                player.goalie_wins = 0
-                player.goalie_losses = 0
-                player.goalie_ot_losses = 0
-                player.goalie_shutouts = 0
-                player.shots_against = 0
-                player.saves = 0
-                player.goals_against = 0
+                _reset(player)
+
+        # Free agents persist across seasons; clear their live season stats too.
+        for player in self.free_agents:
+            _reset(player)
 
     def _record_career_season_stats(self, completed_season: int) -> None:
         for team in self.teams:
@@ -2833,10 +2761,11 @@ class LeagueSimulator:
         self._assign_contract_terms(player, years=years, cap_hit=cap_hit, contract_type=contract_type, is_rfa=is_rfa)
         return True
 
-    def _run_contract_and_free_agency(self) -> dict[str, object]:
+    def _run_contract_and_free_agency(self, user_team_name: str | None = None) -> dict[str, object]:
         signings: list[dict[str, object]] = []
         re_signings: list[dict[str, object]] = []
         expiring_free_agents: list[Player] = []
+        protected_free_agent_ids: set[str] = set()
 
         for team in self.teams:
             keep_roster: list[Player] = []
@@ -2853,7 +2782,8 @@ class LeagueSimulator:
                 value = self._contract_player_value(player)
                 age_factor = max(0.0, min(1.0, (34 - player.age) / 12.0))
                 retain_chance = min(0.92, 0.34 + value * 0.12 + age_factor * 0.22)
-                if self._rng.random() < retain_chance:
+                allow_auto_resign = not user_team_name or team.name != user_team_name
+                if allow_auto_resign and self._rng.random() < retain_chance:
                     years, cap_hit, contract_type, is_rfa = self._estimate_contract_offer(player)
                     self._assign_contract_terms(player, years=years, cap_hit=cap_hit, contract_type=contract_type, is_rfa=is_rfa)
                     re_signings.append(
@@ -2869,8 +2799,11 @@ class LeagueSimulator:
                     else:
                         keep_minors.append(player)
                 else:
+                    player.free_agent_origin_team = team.name
                     player.team_name = "Free Agents"
                     expiring_free_agents.append(player)
+                    if user_team_name and team.name == user_team_name:
+                        protected_free_agent_ids.add(player.player_id)
                     team.dressed_player_names.discard(player.name)
                     if team.starting_goalie_name == player.name:
                         team.starting_goalie_name = None
@@ -2884,13 +2817,20 @@ class LeagueSimulator:
             reverse=True,
         )
 
-        for team in self.teams:
-            attempts = 0
-            while free_agents and attempts < 60:
-                attempts += 1
+        cpu_teams = [t for t in self.teams if not (user_team_name and t.name == user_team_name)]
+        max_rounds = 10
+        fa_round = 0
+        while free_agents and fa_round < max_rounds:
+            fa_round += 1
+            offers: list[dict[str, object]] = []
+            for team in sorted(cpu_teams, key=lambda t: t.name):
                 needs = self._team_fa_needs(team)
                 if needs["ANY"] <= 0:
-                    break
+                    continue
+                cap_space = self._team_cap_limit(team) - self._team_cap_used(team)
+                if cap_space < 0.65:
+                    continue
+
                 cap_relief_score = needs.get("score_cap_relief", 0) / 1000.0
                 score_f = max(needs["F"] * 0.22, needs.get("score_top6_f", 0) / 1000.0, needs.get("score_depth_f", 0) / 1000.0)
                 score_d = max(needs["D"] * 0.24, needs.get("score_top4_d", 0) / 1000.0, needs.get("score_depth_d", 0) / 1000.0)
@@ -2907,41 +2847,111 @@ class LeagueSimulator:
                 if not wanted_positions:
                     wanted_positions = ["C", "LW", "RW", "D", "G"]
 
-                cap_limit_for_signing = None
+                cap_limit_for_signing: float | None = None
                 if cap_relief_score >= 0.45:
                     cap_limit_for_signing = max(0.75, 2.2 - (cap_relief_score - 0.45) * 2.0)
 
-                candidate = None
+                offer_added = False
                 for pos in wanted_positions:
-                    pos_candidates = [p for p in free_agents if p.position == pos]
-                    if not pos_candidates:
-                        continue
+                    pos_candidates = [
+                        p for p in free_agents
+                        if p.position == pos and p.player_id not in protected_free_agent_ids
+                    ]
                     pos_candidates = sorted(
                         pos_candidates,
-                        key=lambda p: (self._contract_player_value(p), -float(getattr(p, "cap_hit", 0.0)), -p.age),
+                        key=lambda p: (self._contract_player_value(p), -p.age, p.name),
                         reverse=True,
-                    )
-                    candidate = pos_candidates[0]
-                    break
-                if candidate is None:
-                    candidate = free_agents[0]
-                if not self._can_sign_player(team, candidate, max_cap_hit=cap_limit_for_signing):
+                    )[:20]
+                    for candidate in pos_candidates:
+                        years, cap_hit, contract_type, is_rfa = self._estimate_contract_offer(candidate)
+                        if cap_limit_for_signing is not None and cap_hit > cap_limit_for_signing:
+                            continue
+                        if cap_hit > cap_space:
+                            continue
+                        fit_bonus = float(position_weights.get(candidate.position, 0.0))
+                        contender_bonus = max(0.0, min(0.12, (self._team_point_pct(team) - 0.5) * 0.6))
+                        offer_score = cap_hit * years + fit_bonus * 0.65 + contender_bonus + self._rng.random() * 0.05
+                        offers.append(
+                            {
+                                "team": team,
+                                "player": candidate,
+                                "years": years,
+                                "cap_hit": cap_hit,
+                                "contract_type": contract_type,
+                                "is_rfa": is_rfa,
+                                "score": offer_score,
+                            }
+                        )
+                        offer_added = True
+                        break
+                    if offer_added:
+                        break
+
+            if not offers:
+                break
+
+            offers_by_player: dict[str, list[dict[str, object]]] = {}
+            for offer in offers:
+                player_obj = offer["player"]
+                if not isinstance(player_obj, Player):
                     continue
-                free_agents.remove(candidate)
-                candidate.team_name = team.name
-                team.roster.append(candidate)
+                offers_by_player.setdefault(player_obj.player_id, []).append(offer)
+
+            signed_team_names: set[str] = set()
+            signed_player_ids: set[str] = set()
+            for player_id, player_offers in offers_by_player.items():
+                best_offer = max(player_offers, key=lambda o: float(o.get("score", 0.0)))
+                team_obj = best_offer["team"]
+                player_obj = best_offer["player"]
+                if not isinstance(team_obj, Team) or not isinstance(player_obj, Player):
+                    continue
+                if team_obj.name in signed_team_names or player_id in signed_player_ids:
+                    continue
+                if player_obj not in free_agents:
+                    continue
+                if len([p for p in team_obj.roster if not p.is_injured]) >= Team.MAX_ROSTER_SIZE:
+                    continue
+                cap_hit = float(best_offer.get("cap_hit", 0.0))
+                if cap_hit > (self._team_cap_limit(team_obj) - self._team_cap_used(team_obj)):
+                    continue
+
+                self._assign_contract_terms(
+                    player_obj,
+                    years=int(best_offer.get("years", 1)),
+                    cap_hit=cap_hit,
+                    contract_type=str(best_offer.get("contract_type", "veteran")),
+                    is_rfa=bool(best_offer.get("is_rfa", False)),
+                )
+                free_agents.remove(player_obj)
+                player_obj.team_name = team_obj.name
+                player_obj.free_agent_origin_team = ""
+                team_obj.roster.append(player_obj)
                 signings.append(
                     {
-                        "team": team.name,
-                        "player": candidate.name,
-                        "years": int(candidate.contract_years_left),
-                        "cap_hit": float(candidate.cap_hit),
+                        "team": team_obj.name,
+                        "player": player_obj.name,
+                        "years": int(player_obj.contract_years_left),
+                        "cap_hit": float(player_obj.cap_hit),
+                        "round": fa_round,
                     }
                 )
+                signed_team_names.add(team_obj.name)
+                signed_player_ids.add(player_id)
 
+        for team in self.teams:
             team.set_default_lineup()
 
         self.free_agents = list(free_agents)
+        user_pending_re_signs = [
+            {
+                "name": p.name,
+                "position": p.position,
+                "age": p.age,
+                "overall": round(self._contract_player_value(p), 2),
+            }
+            for p in free_agents
+            if user_team_name and p.player_id in protected_free_agent_ids
+        ]
         remaining_free_agents = [
             {
                 "name": p.name,
@@ -2954,6 +2964,7 @@ class LeagueSimulator:
         return {
             "re_signings": re_signings,
             "signings": signings,
+            "user_pending_re_signs": user_pending_re_signs,
             "remaining_free_agents": remaining_free_agents,
         }
 
@@ -2995,10 +3006,50 @@ class LeagueSimulator:
         )
         self.free_agents.remove(player)
         player.team_name = team.name
+        player.free_agent_origin_team = ""
         team.roster.append(player)
         self._assign_team_player_numbers(team)
         team.set_default_lineup()
         self._ensure_team_leadership()
+        self._save_state()
+        return {
+            "ok": True,
+            "team": team.name,
+            "player": player.name,
+            "years": int(player.contract_years_left),
+            "cap_hit": float(player.cap_hit),
+        }
+
+    def extend_player_contract(
+        self,
+        team_name: str,
+        player_name: str,
+        years: int | None = None,
+        cap_hit: float | None = None,
+    ) -> dict[str, object]:
+        team = self.get_team(team_name)
+        if team is None:
+            return {"ok": False, "reason": "team_not_found"}
+        player = next((p for p in [*team.roster, *team.minor_roster] if p.name == player_name), None)
+        if player is None:
+            return {"ok": False, "reason": "player_not_found"}
+        if int(getattr(player, "contract_years_left", 0) or 0) <= 0:
+            return {"ok": False, "reason": "contract_expired"}
+
+        ask_years, ask_cap, ask_type, ask_rfa = self._estimate_contract_offer(player)
+        offer_years = ask_years if years is None else max(1, min(8, int(years)))
+        offer_cap = ask_cap if cap_hit is None else max(0.65, float(cap_hit))
+        cap_space = self._team_cap_limit(team) - self._team_cap_used(team) + float(getattr(player, "cap_hit", 0.0))
+        if offer_cap > cap_space:
+            return {"ok": False, "reason": "cap_space"}
+
+        self._assign_contract_terms(
+            player,
+            years=offer_years,
+            cap_hit=offer_cap,
+            contract_type=ask_type,
+            is_rfa=ask_rfa,
+        )
         self._save_state()
         return {
             "ok": True,
@@ -3251,6 +3302,7 @@ class LeagueSimulator:
             elimination_bump = 650 if elimination_game else 0
             attendance_noise = self._rng.randint(-420, 620)
             attendance = max(8600, min(arena_capacity, base_attendance + quality_bump + rivalry_bump + elimination_bump + attendance_noise))
+            stars = self._playoff_three_stars(result)
             games.append(
                 {
                     "game": game_number,
@@ -3268,6 +3320,7 @@ class LeagueSimulator:
                     "attendance": attendance,
                     "arena_capacity": arena_capacity,
                     "winner": higher_seed.name if higher_won else lower_seed.name,
+                    "three_stars": stars,
                 }
             )
             self._consume_coach_game_effect(higher_seed)
@@ -3528,12 +3581,107 @@ class LeagueSimulator:
             "rounds": rounds,
         }
 
+    def _playoff_three_stars(self, result: GameResult) -> list[dict[str, str]]:
+        skater_lines: dict[str, dict[str, object]] = {}
+
+        def add_goal_events(events: list[Any], team_name: str) -> None:
+            for ev in events:
+                scorer = ev.scorer
+                sid = scorer.player_id
+                if sid not in skater_lines:
+                    skater_lines[sid] = {"player": scorer, "team": team_name, "g": 0, "a": 0}
+                skater_lines[sid]["g"] = int(skater_lines[sid]["g"]) + 1
+                for helper in ev.assists:
+                    aid = helper.player_id
+                    if aid not in skater_lines:
+                        skater_lines[aid] = {"player": helper, "team": team_name, "g": 0, "a": 0}
+                    skater_lines[aid]["a"] = int(skater_lines[aid]["a"]) + 1
+
+        add_goal_events(result.home_goal_events, result.home.name)
+        add_goal_events(result.away_goal_events, result.away.name)
+
+        candidates: list[tuple[float, str]] = []
+        for line in skater_lines.values():
+            player = line["player"]
+            goals = int(line["g"])
+            assists = int(line["a"])
+            points = goals + assists
+            score = points * 52.0 + goals * 18.0 + assists * 8.0
+            if points >= 3:
+                score += 18.0
+            if goals >= 2:
+                score += 12.0
+            summary = f"{player.name} ({line['team']}) {goals}G {assists}A"
+            candidates.append((score, summary))
+
+        def goalie_score(saves: int, shots: int, goals_against: int, won: bool) -> float:
+            if shots <= 0:
+                return 0.0
+            sv = saves / shots
+            score = saves * 2.0
+            if sv >= 0.960:
+                score += 95.0
+            elif sv >= 0.950:
+                score += 78.0
+            elif sv >= 0.940:
+                score += 62.0
+            elif sv >= 0.930:
+                score += 46.0
+            elif sv >= 0.920:
+                score += 28.0
+            elif sv >= 0.910:
+                score += 12.0
+            if shots >= 40:
+                score += 36.0
+            elif shots >= 35:
+                score += 24.0
+            elif shots >= 30:
+                score += 14.0
+            if won:
+                score += 34.0
+            if goals_against == 0:
+                score += 135.0
+            return max(0.0, score)
+
+        if result.home_goalie is not None and result.home_goalie_shots > 0:
+            candidates.append(
+                (
+                    goalie_score(
+                        saves=result.home_goalie_saves,
+                        shots=result.home_goalie_shots,
+                        goals_against=result.away_goals,
+                        won=result.home_goals > result.away_goals,
+                    ),
+                    f"{result.home_goalie.name} ({result.home.name}) {result.home_goalie_saves}/{result.home_goalie_shots} SV",
+                )
+            )
+        if result.away_goalie is not None and result.away_goalie_shots > 0:
+            candidates.append(
+                (
+                    goalie_score(
+                        saves=result.away_goalie_saves,
+                        shots=result.away_goalie_shots,
+                        goals_against=result.home_goals,
+                        won=result.away_goals > result.home_goals,
+                    ),
+                    f"{result.away_goalie.name} ({result.away.name}) {result.away_goalie_saves}/{result.away_goalie_shots} SV",
+                )
+            )
+
+        candidates.sort(key=lambda row: row[0], reverse=True)
+        labels = ["1st Star", "2nd Star", "3rd Star"]
+        return [{"label": labels[idx], "summary": summary} for idx, (_, summary) in enumerate(candidates[:3])]
+
     def _start_new_season(self) -> None:
         self._records = {team.name: TeamRecord(team=team) for team in self.teams}
         self._season_days = build_round_robin_days(self.teams, self.games_per_matchup)
         self._day_index = 0
 
-    def _complete_offseason_with_playoffs(self, playoffs: dict[str, object]) -> dict[str, object]:
+    def _complete_offseason_with_playoffs(
+        self,
+        playoffs: dict[str, object],
+        user_team_name: str | None = None,
+    ) -> dict[str, object]:
         champion = str(playoffs.get("champion", "")) if playoffs else (self.get_standings()[0].team.name if self.teams else "")
         coach_rows: list[dict[str, object]] = []
         leadership_rows: list[dict[str, object]] = []
@@ -3575,7 +3723,7 @@ class LeagueSimulator:
         self._record_career_season_stats(self.season_number)
         retired, retired_numbers = self._age_and_retire_players()
         drafted, drafted_details = self._run_draft()
-        free_agency = self._run_contract_and_free_agency()
+        free_agency = self._run_contract_and_free_agency(user_team_name=user_team_name)
         self._clear_season_player_stats()
         self.last_offseason_retired = list(retired)
         self.last_offseason_retired_numbers = list(retired_numbers)
@@ -3625,23 +3773,23 @@ class LeagueSimulator:
             "next_season": self.season_number,
         }
 
-    def finalize_offseason_after_playoffs(self) -> dict[str, object]:
+    def finalize_offseason_after_playoffs(self, user_team_name: str | None = None) -> dict[str, object]:
         if not self.is_complete():
             return {"advanced": False, "reason": "season_not_complete"}
         if self.pending_playoffs is None:
             return {"advanced": False, "reason": "playoffs_not_started"}
         if self.pending_playoff_day_index < len(self.pending_playoff_days):
             return {"advanced": False, "reason": "playoffs_not_complete"}
-        return self._complete_offseason_with_playoffs(self.pending_playoffs)
+        return self._complete_offseason_with_playoffs(self.pending_playoffs, user_team_name=user_team_name)
 
-    def advance_to_next_season(self) -> dict[str, object]:
+    def advance_to_next_season(self, user_team_name: str | None = None) -> dict[str, object]:
         if not self.is_complete():
             return {"advanced": False, "reason": "season_not_complete"}
         if self.pending_playoffs is None:
             self.start_playoffs()
         self.pending_playoff_day_index = len(self.pending_playoff_days)
         self._save_state()
-        return self.finalize_offseason_after_playoffs()
+        return self.finalize_offseason_after_playoffs(user_team_name=user_team_name)
 
     def reset_persistent_history(self) -> None:
         self.season_history = []

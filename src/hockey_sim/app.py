@@ -53,9 +53,10 @@ def _make_roster(
     defense_bias: float,
     physical_bias: float,
     name_gen: NameGenerator,
+    world_seed: int = 7,
 ) -> list[Player]:
     roster: list[Player] = []
-    rng = random.Random(f"{team_name}:{offense_bias:.3f}:{defense_bias:.3f}:{physical_bias:.3f}")
+    rng = random.Random(f"{world_seed}:{team_name}:{offense_bias:.3f}:{defense_bias:.3f}:{physical_bias:.3f}")
 
     # Pro-style talent pyramid: very few stars, more middle/depth players.
     forward_positions = ["C", "C", "C", "C", "C", "LW", "LW", "LW", "LW", "RW", "RW", "RW", "RW"]
@@ -149,8 +150,9 @@ def _make_minor_roster(
     defense_bias: float,
     physical_bias: float,
     name_gen: NameGenerator,
+    world_seed: int = 7,
 ) -> list[Player]:
-    rng = random.Random(f"minor:{team_name}:{offense_bias:.3f}:{defense_bias:.3f}:{physical_bias:.3f}")
+    rng = random.Random(f"{world_seed}:minor:{team_name}:{offense_bias:.3f}:{defense_bias:.3f}:{physical_bias:.3f}")
     roster: list[Player] = []
     positions = ["C", "LW", "RW", "C", "LW", "RW", "D", "D", "D", "G"]
     for pos in positions:
@@ -191,7 +193,7 @@ def _make_minor_roster(
     return roster
 
 
-def build_default_teams() -> list[Team]:
+def build_default_teams(world_seed: int = 7) -> list[Team]:
     team_logos: dict[str, str] = {
         "Aurora": "??",
         "Icebreakers": "??",
@@ -253,14 +255,14 @@ def build_default_teams() -> list[Team]:
         ],
     }
 
-    name_gen = NameGenerator(seed=7)
+    name_gen = NameGenerator(seed=world_seed)
     teams: list[Team] = []
     for division, entries in divisions.items():
         conference = "Eastern" if division in {"East", "Central"} else "Western"
         for team_name, offense, defense, physical, primary, secondary in entries:
-            roster = _make_roster(team_name, offense, defense, physical, name_gen)
-            minor_roster = _make_minor_roster(team_name, offense, defense, physical, name_gen)
-            arena_rng = random.Random(f"arena:{team_name}")
+            roster = _make_roster(team_name, offense, defense, physical, name_gen, world_seed=world_seed)
+            minor_roster = _make_minor_roster(team_name, offense, defense, physical, name_gen, world_seed=world_seed)
+            arena_rng = random.Random(f"{world_seed}:arena:{team_name}")
             teams.append(
                 Team(
                     name=team_name,

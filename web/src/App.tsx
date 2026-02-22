@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-type MainNavKey = "home" | "trade_center" | "transactions" | "contracts" | "free_agents" | "scores" | "league_news" | "team_stats" | "league_stats" | "awards" | "standings" | "league_records" | "cup_history" | "roster" | "lines" | "callups" | "minors" | "franchise" | "records" | "banners";
+type MainNavKey = "home" | "schedule" | "legacy" | "trade_center" | "transactions" | "contracts" | "free_agents" | "scores" | "league_news" | "team_stats" | "league_stats" | "awards" | "standings" | "league_records" | "cup_history" | "roster" | "lines" | "callups" | "minors" | "franchise" | "records" | "banners";
 type StandingsTab = "standings" | "wildcard" | "playoffs";
 type NavScope = "league" | "team";
 type TransactionFilter = "all" | "trades" | "callups" | "injuries" | "signings";
@@ -386,6 +386,26 @@ type HomePanel = {
     commentary?: string[];
     three_stars?: Array<{ label: string; summary: string }>;
   }>;
+  team_schedule?: Array<{
+    game_day?: number;
+    home: string;
+    away: string;
+    status?: "played" | "scheduled";
+    home_goals?: number;
+    away_goals?: number;
+    overtime?: boolean;
+    home_record?: string;
+    away_record?: string;
+    home_goalie?: string;
+    away_goalie?: string;
+    home_goalie_sv?: string;
+    away_goalie_sv?: string;
+    attendance?: number;
+    arena_capacity?: number;
+    periods?: Array<{ label: string; home: number; away: number }>;
+    commentary?: string[];
+    three_stars?: Array<{ label: string; summary: string }>;
+  }>;
   upcoming_game?: {
     home: string;
     away: string;
@@ -709,6 +729,8 @@ type FreeAgentsPayload = {
     ask_cap_hit: number;
     contract_type: string;
     is_rfa: boolean;
+    origin_team?: string;
+    is_user_origin?: boolean;
   }>;
 };
 
@@ -874,6 +896,7 @@ export default function App() {
   const [awardsData, setAwardsData] = useState<AwardsPayload | null>(null);
   const [callupsData, setCallupsData] = useState<CallupsPayload | null>(null);
   const [navScope, setNavScope] = useState<NavScope>("league");
+  const [legacyTab, setLegacyTab] = useState<"history" | "banners" | "records">("history");
   const [gameModeLocal, setGameModeLocal] = useState<"gm" | "coach" | "both">("gm");
   const [showCoachDetails, setShowCoachDetails] = useState(false);
   const [autoActionToast, setAutoActionToast] = useState("");
@@ -901,6 +924,14 @@ export default function App() {
     () => goalies.filter((g) => g.team === (meta?.user_team ?? g.team)),
     [goalies, meta?.user_team],
   );
+  const standingsRecordMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const r of rows) map.set(r.team, `${r.w}-${r.l}-${r.otl}`);
+    for (const grp of Object.values(groupRows)) {
+      for (const r of grp) map.set(r.team, `${r.w}-${r.l}-${r.otl}`);
+    }
+    return map;
+  }, [rows, groupRows]);
 
   const teamLeaders = useMemo(() => {
     const defs = [
@@ -973,6 +1004,11 @@ export default function App() {
     });
   }, [transactions, transactionFilter, transactionSeason]);
 
+  const scheduleGames = useMemo(() => {
+    const list = [...(homePanel?.team_schedule ?? [])];
+    return list.sort((a, b) => (a.game_day ?? 9999) - (b.game_day ?? 9999));
+  }, [homePanel]);
+
   function trendArrow(trend?: string): string {
     if (trend === "Rising") return "\u25B2";
     if (trend === "Falling") return "\u25BC";
@@ -995,6 +1031,29 @@ export default function App() {
         {jerseyNumber ? <span className="player-num"> {jerseyNumber}</span> : null}
       </>
     );
+  }
+
+  function topStarName(summary?: string): string {
+    const text = String(summary ?? "").trim();
+    const closeParen = text.indexOf(")");
+    if (closeParen > 0) return text.slice(0, closeParen + 1);
+    return text;
+  }
+
+  function formatScheduleResult(game: {
+    home: string;
+    away: string;
+    home_goals?: number;
+    away_goals?: number;
+    overtime?: boolean;
+  }, teamName: string): string {
+    if (typeof game.home_goals !== "number" || typeof game.away_goals !== "number") return "-";
+    const isHome = game.home === teamName;
+    const gf = isHome ? game.home_goals : game.away_goals;
+    const ga = isHome ? game.away_goals : game.home_goals;
+    const wl = gf > ga ? "W" : "L";
+    const ot = game.overtime ? " OT" : "";
+    return `${wl} ${gf}-${ga}${ot}`;
   }
 
   function needLabel(key: string): string {
@@ -1227,8 +1286,8 @@ export default function App() {
         (mainNav === "contracts" ? loadContracts(m.user_team) : Promise.resolve()),
         (mainNav === "free_agents" ? loadFreeAgents(m.user_team) : Promise.resolve()),
         (mainNav === "callups" ? loadCallups(m.user_team) : Promise.resolve()),
-        ((mainNav === "records" || mainNav === "league_records") ? loadRecords(m.user_team) : Promise.resolve()),
-        (mainNav === "banners" ? loadBanners(m.user_team) : Promise.resolve()),
+        ((mainNav === "legacy" || mainNav === "league_records") ? loadRecords(m.user_team) : Promise.resolve()),
+        (mainNav === "legacy" ? loadBanners(m.user_team) : Promise.resolve()),
         (mainNav === "awards" ? loadAwards(m.user_team) : Promise.resolve()),
         (mainNav === "cup_history" ? loadCupHistory() : Promise.resolve()),
         loadDayBoards(scoreTarget),
@@ -1468,6 +1527,18 @@ export default function App() {
     await refreshAll();
   }
 
+  async function extendContract(playerName: string) {
+    await fetchJson("/contracts/extend", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        team_name: meta?.user_team,
+        player_name: playerName,
+      }),
+    });
+    await refreshAll();
+  }
+
   async function saveLines() {
     await fetchJson("/lines", {
       method: "POST",
@@ -1639,6 +1710,7 @@ export default function App() {
   ];
   const teamNav: Array<[MainNavKey, string]> = [
     ["home", `Home${inboxEvents.length > 0 ? ` (${inboxEvents.length})` : ""}`],
+    ["schedule", "Schedule"],
     ["trade_center", "Trades"],
     ["transactions", "Transactions"],
     ["contracts", "Contracts"],
@@ -1648,9 +1720,7 @@ export default function App() {
     ["lines", "Lines"],
     ["callups", "Call Ups"],
     ["minors", "Minor League"],
-    ["franchise", "History"],
-    ["banners", "Banners"],
-    ["records", "Records"],
+    ["legacy", "Legacy"],
   ];
 
   function handleNavSelect(key: MainNavKey) {
@@ -1658,8 +1728,9 @@ export default function App() {
     if (key === "league_news") void loadLeagueNews();
     if (key === "team_stats") void loadLeaders("team", meta?.user_team);
     if (key === "league_stats") void loadLeaders("league");
-    if (key === "records" || key === "league_records") void loadRecords();
-    if (key === "banners") void loadBanners();
+    if (key === "legacy" || key === "league_records") void loadRecords();
+    if (key === "legacy") void loadBanners();
+    if (key === "legacy") setLegacyTab("history");
     if (key === "awards") void loadAwards();
     if (key === "cup_history") void loadCupHistory();
     if (key === "trade_center") {
@@ -2244,6 +2315,128 @@ export default function App() {
         </section>
       ) : null}
 
+      {mainNav === "legacy" ? (
+        <section className="card">
+          <div className="section-head">
+            <h2>{meta?.user_team ?? "Team"} Legacy</h2>
+            <div className="inline-controls">
+              <button className={legacyTab === "history" ? "active" : ""} onClick={() => setLegacyTab("history")}>History</button>
+              <button className={legacyTab === "banners" ? "active" : ""} onClick={() => setLegacyTab("banners")}>Banners</button>
+              <button className={legacyTab === "records" ? "active" : ""} onClick={() => setLegacyTab("records")}>Records</button>
+            </div>
+          </div>
+          {legacyTab === "history" ? (
+            <>
+              <h3>Season History</h3>
+              <table>
+                <thead><tr><th>Season</th><th>GP</th><th>W</th><th>L</th><th>OTL</th><th>Pts</th><th>Conf Rank</th><th>Div Rank</th><th>Playoff</th><th>Playoff Result</th><th>Cup</th></tr></thead>
+                <tbody>{(franchise?.history ?? []).map((h) => <tr key={`legacy-h-${h.season}`}><td>{h.season}</td><td>{h.gp}</td><td>{h.w}</td><td>{h.l}</td><td>{h.otl}</td><td>{h.pts}</td><td>{h.conference_rank}</td><td>{h.division_rank}</td><td>{h.playoff}</td><td>{h.playoff_result}</td><td>{h.cup_winner}</td></tr>)}</tbody>
+              </table>
+              <div className="split">
+                <div>
+                  <h3>Draft Results</h3>
+                  <table>
+                    <thead><tr><th>Season</th><th>Player</th><th>Pos</th><th>Pick</th></tr></thead>
+                    <tbody>
+                      {(franchise?.draft_picks ?? []).slice(0, 30).map((d, idx) => (
+                        <tr key={`legacy-d-${idx}-${d.season}-${d.name}`} className="row-clickable" onClick={() => void openPlayerCareer(d.team ?? (meta?.user_team ?? ""), d.name)}>
+                          <td>{d.season}</td><td><span className="text-link">{d.name}</span></td><td>{d.position}</td><td>R{d.round} #{d.overall}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div>
+                  <h3>Retired Players</h3>
+                  <table>
+                    <thead><tr><th>Season</th><th>Player</th></tr></thead>
+                    <tbody>
+                      {(franchise?.retired ?? []).slice(0, 30).map((r, idx) => (
+                        <tr key={`legacy-r-${idx}-${r.season}-${r.entry}`} className={r.name ? "row-clickable" : ""} onClick={() => (r.name ? void openPlayerCareer(r.team ?? (meta?.user_team ?? ""), r.name) : undefined)}>
+                          <td>{r.season}</td><td>{r.name ? <span className="text-link">{r.entry}</span> : r.entry}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
+          ) : null}
+          {legacyTab === "banners" ? (
+            <>
+              <h3>{bannersData?.team ?? (meta?.user_team ?? "Team")} Arena Banners</h3>
+              {(bannersData?.banners ?? []).length > 0 ? (
+                <div className="banner-grid">
+                  {(bannersData?.banners ?? []).map((b, idx) => (
+                    <div key={`legacy-banner-${b.kind}-${b.season}-${idx}`} className="arena-banner">
+                      <div className="banner-hang" />
+                      <div
+                        className="banner-fabric"
+                        style={
+                          {
+                            "--banner-primary": bannersData?.primary_color ?? "#1f3a93",
+                            "--banner-secondary": bannersData?.secondary_color ?? "#d7e1f5",
+                          } as Record<string, string>
+                        }
+                      >
+                        {b.kind === "retired_number" ? (
+                          <>
+                            <div className="retired-player">{(b.player ?? "").toUpperCase()}</div>
+                            <div className="retired-number">{b.number ?? "-"}</div>
+                            <div className="retired-stripe" />
+                            <div className="retired-years">
+                              <span>{typeof b.start_year === "number" ? `S${b.start_year}` : "-"}</span>
+                              {bannersData?.logo_url ? <img className="retired-mini-logo" src={logoUrl(bannersData.logo_url)} alt={b.team} /> : null}
+                              <span>{typeof b.end_year === "number" ? `S${b.end_year}` : "-"}</span>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="banner-team">{b.team.toUpperCase()}</div>
+                            {bannersData?.logo_url ? <img className="banner-logo" src={logoUrl(bannersData.logo_url)} alt={b.team} /> : null}
+                            <div className="banner-title">{b.title.toUpperCase()}</div>
+                            <div className="banner-season">SEASON {b.season}</div>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="muted">No banners yet for this franchise.</p>
+              )}
+            </>
+          ) : null}
+          {legacyTab === "records" ? (
+            <>
+              <h3>{recordsData?.team ?? (meta?.user_team ?? "Team")} Franchise Records</h3>
+              {(recordsData?.franchise ?? []).map((table) => (
+                <div key={`legacy-rec-${table.key}`}>
+                  <h3>{table.label}</h3>
+                  <table className="banded">
+                    <thead>
+                      <tr><th>Player</th><th>Pos</th><th>Value</th><th>Status</th></tr>
+                    </thead>
+                    <tbody>
+                      {table.rows.map((row) => (
+                        <tr key={`legacy-rec-row-${table.key}-${row.team}-${row.name}`}>
+                          <td>
+                            <span className="text-link" onClick={() => void openPlayerCareer(row.team, row.name)}>{row.name}</span>
+                          </td>
+                          <td>{row.position}</td>
+                          <td>{row.value}</td>
+                          <td>{row.status}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ))}
+            </>
+          ) : null}
+        </section>
+      ) : null}
+
       {mainNav === "records" ? (
         <section className="card">
           <h2>{recordsData?.team ?? (meta?.user_team ?? "Team")} Franchise Records</h2>
@@ -2669,7 +2862,7 @@ export default function App() {
               <h3>Active Roster Contracts</h3>
               <table className="banded">
                 <thead>
-                  <tr><th>Player</th><th>Pos</th><th>Age</th><th>Years</th><th>AAV</th><th>Type</th><th>RFA</th></tr>
+                  <tr><th>Player</th><th>Pos</th><th>Age</th><th>Years</th><th>AAV</th><th>Type</th><th>RFA</th><th>Action</th></tr>
                 </thead>
                 <tbody>
                   {(contractsData?.active ?? []).map((r) => (
@@ -2681,6 +2874,20 @@ export default function App() {
                       <td>${r.cap_hit.toFixed(2)}M</td>
                       <td>{r.contract_type}</td>
                       <td>{r.is_rfa ? "Y" : "N"}</td>
+                      <td>
+                        {r.years_left <= 1 ? (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void extendContract(r.name);
+                            }}
+                          >
+                            Extend
+                          </button>
+                        ) : (
+                          "-"
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -2690,7 +2897,7 @@ export default function App() {
               <h3>Minor League Contracts</h3>
               <table className="banded">
                 <thead>
-                  <tr><th>Player</th><th>Pos</th><th>Age</th><th>Years</th><th>AAV</th><th>Type</th><th>RFA</th></tr>
+                  <tr><th>Player</th><th>Pos</th><th>Age</th><th>Years</th><th>AAV</th><th>Type</th><th>RFA</th><th>Action</th></tr>
                 </thead>
                 <tbody>
                   {(contractsData?.minors ?? []).map((r) => (
@@ -2702,6 +2909,20 @@ export default function App() {
                       <td>${r.cap_hit.toFixed(2)}M</td>
                       <td>{r.contract_type}</td>
                       <td>{r.is_rfa ? "Y" : "N"}</td>
+                      <td>
+                        {r.years_left <= 1 ? (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void extendContract(r.name);
+                            }}
+                          >
+                            Extend
+                          </button>
+                        ) : (
+                          "-"
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -2723,7 +2944,7 @@ export default function App() {
           </p>
           <table className="banded">
             <thead>
-              <tr><th>Player</th><th>Pos</th><th>Age</th><th>OVR</th><th>Ask</th><th>Type</th><th>RFA</th><th>Action</th></tr>
+              <tr><th>Player</th><th>Pos</th><th>Age</th><th>OVR</th><th>Ask</th><th>Type</th><th>From</th><th>Action</th></tr>
             </thead>
             <tbody>
               {(freeAgentsData?.rows ?? []).map((r) => (
@@ -2734,7 +2955,7 @@ export default function App() {
                   <td>{r.overall.toFixed(2)}</td>
                   <td>{r.ask_years}y @ ${r.ask_cap_hit.toFixed(2)}M</td>
                   <td>{r.contract_type}</td>
-                  <td>{r.is_rfa ? "Y" : "N"}</td>
+                  <td>{r.origin_team ? `${r.origin_team}${r.is_user_origin ? " (Your rights)" : ""}` : "-"}</td>
                   <td>
                     <button onClick={() => void signFreeAgent(r.name, r.ask_years, r.ask_cap_hit)}>
                       Sign
@@ -2934,6 +3155,69 @@ export default function App() {
               />
             ))}
           </div>
+        </section>
+      ) : null}
+
+      {mainNav === "schedule" ? (
+        <section className="card">
+          <h2>{meta?.user_team ?? "Team"} Schedule</h2>
+          {homePanel?.upcoming_game ? (
+            <div className="score-card">
+              <h3>Upcoming Game</h3>
+              <p className="muted">
+                {homePanel.upcoming_phase === "playoffs" ? "Playoff" : "Regular"} Day {homePanel.upcoming_game_day ?? "-"}
+                {homePanel.upcoming_round ? ` | ${homePanel.upcoming_round}` : ""}
+                {homePanel.upcoming_game.game_number ? ` | Game ${homePanel.upcoming_game.game_number}` : ""}
+              </p>
+              <p className="muted">
+                {homePanel.upcoming_game.away} ({standingsRecordMap.get(homePanel.upcoming_game.away) ?? "-"}) at {homePanel.upcoming_game.home} ({standingsRecordMap.get(homePanel.upcoming_game.home) ?? "-"})
+              </p>
+            </div>
+          ) : null}
+          <table className="banded">
+            <thead>
+              <tr>
+                <th>Day</th>
+                <th>Opponent</th>
+                <th>Result</th>
+                <th>W-L-OTL</th>
+                <th>{meta?.user_team ?? "Team"} Goalie</th>
+                <th>Opponent Goalie</th>
+                <th>3 Stars</th>
+              </tr>
+            </thead>
+            <tbody>
+              {scheduleGames.map((g, idx) => {
+                const userTeam = meta?.user_team ?? "";
+                const isHome = g.home === userTeam;
+                const opponent = isHome ? g.away : g.home;
+                const side = isHome ? "vs" : "@";
+                const record = isHome ? (g.home_record ?? "-") : (g.away_record ?? "-");
+                const teamGoalie = isHome ? (g.home_goalie || "-") : (g.away_goalie || "-");
+                const oppGoalie = isHome ? (g.away_goalie || "-") : (g.home_goalie || "-");
+                const starsText = (g.three_stars ?? [])
+                  .slice(0, 3)
+                  .map((s, sIdx) => `${"★".repeat(Math.min(3, sIdx + 1))} ${topStarName(s.summary)}`)
+                  .join(" | ");
+                return (
+                  <tr key={`schedule-row-${idx}-${g.game_day ?? "x"}-${g.away}-${g.home}`}>
+                    <td>{g.game_day ?? "-"}</td>
+                    <td>
+                      <div className="team-cell">
+                        <span>{side} {opponent}</span>
+                        {meta?.team_logos?.[opponent] ? <img className="mini-logo" src={logoUrl(meta.team_logos[opponent])} alt={opponent} /> : null}
+                      </div>
+                    </td>
+                    <td>{formatScheduleResult(g, userTeam)}</td>
+                    <td>{record}</td>
+                    <td>{teamGoalie}</td>
+                    <td>{oppGoalie}</td>
+                    <td>{starsText || "-"}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </section>
       ) : null}
 
@@ -3143,8 +3427,6 @@ export default function App() {
           <p className="muted">
             Record {homePanel?.team_summary?.record ?? "-"} | {homePanel?.team_summary?.division ?? "-"} Division: {homePanel?.team_summary?.division_rank ?? "-"} place | {homePanel?.team_summary?.points ?? 0} pts
             {" | "}PP% {(homePanel?.team_summary?.pp_pct ?? 0).toFixed(3)} | PK% {(homePanel?.team_summary?.pk_pct ?? 0).toFixed(3)}
-            {" | "}
-            {homePanel?.playoffs?.active ? "Playoffs" : "Regular Season"}
           </p>
             </div>
             <div className="home-sentiments">
@@ -3184,74 +3466,85 @@ export default function App() {
           {homePanel ? (
             <div className="split">
               <div>
-                <h3>Latest Team Game</h3>
-                {(homePanel.playoffs?.active && homePanel.playoffs.latest_team_game) || homePanel.latest_game ? (
-                  <>
-                    <GameSummaryCard
-                      game={(homePanel.playoffs?.active && homePanel.playoffs.latest_team_game) ? homePanel.playoffs.latest_team_game : homePanel.latest_game!}
-                      teamLogos={meta?.team_logos}
-                      showTeamLabels={false}
-                      emphasizePlayoffSeries={Boolean(homePanel.playoffs?.active && homePanel.playoffs.latest_team_game)}
-                      seriesLineTop={Boolean(homePanel.playoffs?.active && homePanel.playoffs.latest_team_game)}
-                    />
-                    <p className="muted">
-                      {(homePanel.playoffs?.active && homePanel.playoffs.latest_team_game) ? (
-                        <>
-                          Playoff Day {homePanel.playoffs.latest_team_game_day ?? "-"} / {homePanel.playoffs.total_days ?? "-"}
-                        </>
-                      ) : (
-                        <>
-                          Day {homePanel.latest_game_day} | {homePanel.latest_game?.away} {homePanel.latest_game?.away_goals} at {homePanel.latest_game?.home} {homePanel.latest_game?.home_goals}
-                          {homePanel.latest_game?.overtime ? " (OT)" : ""}
-                        </>
-                      )}
-                    </p>
-                  </>
-                ) : null}
-                {homePanel.upcoming_game ? (
-                  <div>
-                    <h3>Upcoming Game</h3>
-                    <p className="muted">
-                      {homePanel.upcoming_phase === "playoffs" ? "Playoff" : "Regular"} Day {homePanel.upcoming_game_day ?? "-"}
-                      {homePanel.upcoming_round ? ` | ${homePanel.upcoming_round}` : ""}
-                      {homePanel.upcoming_game.game_number ? ` | Game ${homePanel.upcoming_game.game_number}` : ""}
-                    </p>
-                    <div className="score-card">
-                      <div className="score-main">
-                        <div className="score-team-row">
-                          {meta?.team_logos?.[homePanel.upcoming_game.away] ? <img className="mini-logo" src={logoUrl(meta.team_logos[homePanel.upcoming_game.away])} alt={homePanel.upcoming_game.away} /> : null}
-                          <span>{homePanel.upcoming_game.away}</span>
-                        </div>
-                        <div className="score-team-row">
-                          {meta?.team_logos?.[homePanel.upcoming_game.home] ? <img className="mini-logo" src={logoUrl(meta.team_logos[homePanel.upcoming_game.home])} alt={homePanel.upcoming_game.home} /> : null}
-                          <span>{homePanel.upcoming_game.home}</span>
+                <div className="latest-game-head">
+                  <h3>Team Game Spotlight</h3>
+                </div>
+                {(() => {
+                  const latestGame = (homePanel.playoffs?.active && homePanel.playoffs.latest_team_game)
+                    ? homePanel.playoffs.latest_team_game
+                    : homePanel.latest_game;
+                  const latestShownDay = homePanel.playoffs?.active
+                    ? (homePanel.playoffs.latest_team_game_day ?? null)
+                    : homePanel.latest_game_day;
+                  const showLatest = Boolean(latestGame && latestShownDay != null);
+                  const showUpcoming = Boolean(
+                    homePanel.upcoming_game
+                    && (
+                      latestShownDay == null
+                      || homePanel.upcoming_game_day == null
+                      || homePanel.upcoming_game_day > latestShownDay
+                    ),
+                  );
+                  const renderUpcomingCard = () => {
+                    const upcomingGame = homePanel.upcoming_game;
+                    if (!upcomingGame) return null;
+                    const awayRec = standingsRecordMap.get(upcomingGame.away) ?? "-";
+                    const homeRec = standingsRecordMap.get(upcomingGame.home) ?? "-";
+                    return (
+                      <div className="score-card">
+                        <div className="score-main">
+                          <p className="muted">
+                            {homePanel.upcoming_phase === "playoffs" ? "Playoff" : "Regular"} Day {homePanel.upcoming_game_day ?? "-"}
+                            {homePanel.upcoming_round ? ` | ${homePanel.upcoming_round}` : ""}
+                            {upcomingGame.game_number ? ` | Game ${upcomingGame.game_number}` : ""}
+                          </p>
+                          <div className="score-teams">
+                            <div className="score-team-row">
+                              {meta?.team_logos?.[upcomingGame.away] ? <img className="mini-logo mini-logo-large" src={logoUrl(meta.team_logos[upcomingGame.away])} alt={upcomingGame.away} /> : null}
+                              <div className="score-team-text">
+                                <div className="score-team-name">{upcomingGame.away}</div>
+                                <div className="score-team-record">{awayRec}</div>
+                              </div>
+                            </div>
+                            <div className="score-team-row">
+                              {meta?.team_logos?.[upcomingGame.home] ? <img className="mini-logo mini-logo-large" src={logoUrl(meta.team_logos[upcomingGame.home])} alt={upcomingGame.home} /> : null}
+                              <div className="score-team-text">
+                                <div className="score-team-name">{upcomingGame.home}</div>
+                                <div className="score-team-record">{homeRec}</div>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="results narrative-full">
+                            <div className="line">
+                              Preview: {upcomingGame.away} ({awayRec}) at {upcomingGame.home} ({homeRec}).
+                              {homePanel.upcoming_round ? ` ${homePanel.upcoming_round}.` : ""}
+                            </div>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </div>
-                ) : null}
-                {(homePanel.recent_team_games ?? []).length > 0 ? (
-                  <div>
-                    <h3>Recent Team Games</h3>
-                    <div className="score-list">
-                      {(homePanel.recent_team_games ?? [])
-                        .filter(
-                          (g) =>
-                            !homePanel.latest_game
-                            || g.home !== homePanel.latest_game.home
-                            || g.away !== homePanel.latest_game.away
-                            || g.home_goals !== homePanel.latest_game.home_goals
-                            || g.away_goals !== homePanel.latest_game.away_goals,
-                        )
-                        .map((g, idx) => (
-                        <div key={`home-day-${idx}-${g.away}-${g.home}`}>
-                          <p className="muted">Day {g.game_day ?? "-"}</p>
-                          <GameSummaryCard game={g} teamLogos={meta?.team_logos} showTeamLabels={false} />
-                        </div>
-                        ))}
-                    </div>
-                  </div>
-                ) : null}
+                    );
+                  };
+                  if (showLatest && latestGame) {
+                    return (
+                      <>
+                        <GameSummaryCard
+                          game={latestGame}
+                          teamLogos={meta?.team_logos}
+                          showTeamLabels={false}
+                          emphasizePlayoffSeries={Boolean(homePanel.playoffs?.active && homePanel.playoffs.latest_team_game)}
+                          seriesLineTop={Boolean(homePanel.playoffs?.active && homePanel.playoffs.latest_team_game)}
+                          starsTopRight={true}
+                          largeLogos={true}
+                        />
+                        {showUpcoming ? renderUpcomingCard() : null}
+                      </>
+                    );
+                  }
+                  if (!showLatest && homePanel.upcoming_game) {
+                    return renderUpcomingCard();
+                  }
+                  return <p className="muted">No latest or upcoming game available.</p>;
+                })()}
               </div>
               <div>
                 <div>
@@ -3442,6 +3735,8 @@ function GameSummaryCard({
   emphasizePlayoffSeries = false,
   seriesLineTop = false,
   omitSeriesRound = false,
+  starsTopRight = false,
+  largeLogos = false,
 }: {
   game: {
     home: string;
@@ -3473,42 +3768,88 @@ function GameSummaryCard({
   emphasizePlayoffSeries?: boolean;
   seriesLineTop?: boolean;
   omitSeriesRound?: boolean;
+  starsTopRight?: boolean;
+  largeLogos?: boolean;
 }) {
   const awayScore = typeof game.away_goals === "number" ? ` ${game.away_goals}` : "";
   const homeScore = typeof game.home_goals === "number" ? ` ${game.home_goals}` : "";
+  const commentaryLines = (game.commentary ?? []).filter((line) => !/^three stars:/i.test(String(line).trim()));
+  const stars = (game.three_stars ?? []).slice(0, 3);
   const roundLabel = omitSeriesRound ? "" : (game.round ?? "Playoffs");
   const playoffSeriesLine = game.series_higher_seed && game.series_lower_seed
     ? `${roundLabel ? `${roundLabel} | ` : ""}${game.game_number ? `Game ${game.game_number} | ` : ""}Series: ${game.series_higher_seed} ${game.series_high_wins ?? 0}-${game.series_low_wins ?? 0} ${game.series_lower_seed}`
     : "";
+  const starGlyphs = (label: string, idx: number) => {
+    const text = String(label).toLowerCase();
+    if (text.includes("1st")) return "★";
+    if (text.includes("2nd")) return "★★";
+    if (text.includes("3rd")) return "★★★";
+    return "★".repeat(Math.min(3, Math.max(1, idx + 1)));
+  };
+  const parseStarSummary = (summary: string): { playerLine: string; statLine: string } => {
+    const text = String(summary ?? "").trim();
+    const closeParen = text.indexOf(")");
+    if (closeParen > 0) {
+      return {
+        playerLine: text.slice(0, closeParen + 1),
+        statLine: text.slice(closeParen + 1).trim(),
+      };
+    }
+    return { playerLine: text, statLine: "" };
+  };
+  const showTopStars = showCommentary && stars.length > 0 && starsTopRight;
   return (
     <div className="score-card">
       <div className="score-main">
         {seriesLineTop && playoffSeriesLine ? <div className={emphasizePlayoffSeries ? "series-line-bold" : "muted small"}>{playoffSeriesLine}</div> : null}
-        <div className="score-teams">
-          <div className="score-team-row">
-            {teamLogos?.[game.away] ? <img className="mini-logo" src={logoUrl(teamLogos[game.away])} alt={game.away} /> : null}
-            <div className="score-team-text">
-              <div className="score-team-name">
-                {showTeamLabels ? <strong>Away:</strong> : null} {game.away}<strong>{awayScore}</strong>
+        <div className={showTopStars ? "score-head-grid" : undefined}>
+          <div className={showTopStars ? "score-head-left" : undefined}>
+            <div className="score-teams">
+              <div className="score-team-row">
+                {teamLogos?.[game.away] ? <img className={`mini-logo${largeLogos ? " mini-logo-large" : ""}`} src={logoUrl(teamLogos[game.away])} alt={game.away} /> : null}
+                <div className="score-team-text">
+                  <div className="score-team-name">
+                    {showTeamLabels ? <strong>Away:</strong> : null} {game.away}<strong>{awayScore}</strong>
+                  </div>
+                  {game.away_record ? <div className="score-team-record">{game.away_record}</div> : null}
+                </div>
               </div>
-              {game.away_record ? <div className="score-team-record">{game.away_record}</div> : null}
+              <div className="score-team-row">
+                {teamLogos?.[game.home] ? <img className={`mini-logo${largeLogos ? " mini-logo-large" : ""}`} src={logoUrl(teamLogos[game.home])} alt={game.home} /> : null}
+                <div className="score-team-text">
+                  <div className="score-team-name">
+                    {showTeamLabels ? <strong>Home:</strong> : null} {game.home}<strong>{homeScore}</strong>
+                  </div>
+                  {game.home_record ? <div className="score-team-record">{game.home_record}</div> : null}
+                </div>
+              </div>
+            </div>
+            <div className="muted small game-meta">Goalies: {game.away_goalie || "-"} {game.away_goalie_sv || ""} | {game.home_goalie || "-"} {game.home_goalie_sv || ""}</div>
+            {!seriesLineTop && playoffSeriesLine ? <div className={emphasizePlayoffSeries ? "series-line-bold" : "muted small"}>{playoffSeriesLine}</div> : null}
+            <div className="muted small game-meta">
+              Attendance: {typeof game.attendance === "number" ? game.attendance.toLocaleString() : "-"}
+              {typeof game.arena_capacity === "number" ? `/${game.arena_capacity.toLocaleString()}` : ""}
             </div>
           </div>
-          <div className="score-team-row">
-            {teamLogos?.[game.home] ? <img className="mini-logo" src={logoUrl(teamLogos[game.home])} alt={game.home} /> : null}
-            <div className="score-team-text">
-              <div className="score-team-name">
-                {showTeamLabels ? <strong>Home:</strong> : null} {game.home}<strong>{homeScore}</strong>
+          {showTopStars ? (
+            <div className="stars-block stars-top-right">
+              <div className="stars-title">Stars of the Game</div>
+              <div className="stars-list">
+                {stars.map((s, idx) => {
+                  const parsed = parseStarSummary(s.summary);
+                  return (
+                    <div key={`star-top-${idx}-${s.summary}`} className="star-row">
+                      <div className="star-rank">{starGlyphs(s.label, idx)}</div>
+                      <div className="star-text">
+                        <div className="star-player">{parsed.playerLine}</div>
+                        {parsed.statLine ? <div className="star-stats">{parsed.statLine}</div> : null}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-              {game.home_record ? <div className="score-team-record">{game.home_record}</div> : null}
             </div>
-          </div>
-        </div>
-        <div className="muted small">Goalies: {game.away_goalie || "-"} {game.away_goalie_sv || ""} | {game.home_goalie || "-"} {game.home_goalie_sv || ""}</div>
-        {!seriesLineTop && playoffSeriesLine ? <div className={emphasizePlayoffSeries ? "series-line-bold" : "muted small"}>{playoffSeriesLine}</div> : null}
-        <div className="muted small">
-          Attendance: {typeof game.attendance === "number" ? game.attendance.toLocaleString() : "-"}
-          {typeof game.arena_capacity === "number" ? `/${game.arena_capacity.toLocaleString()}` : ""}
+          ) : null}
         </div>
         {(game.periods ?? []).length > 0 ? (
           <table className="period-table">
@@ -3533,16 +3874,46 @@ function GameSummaryCard({
             </tbody>
           </table>
         ) : null}
-        {showCommentary && (game.commentary ?? []).length > 0 ? (
-          <div className="results">
-            {(game.commentary ?? []).map((line, idx) => (
+        {showCommentary && starsTopRight && commentaryLines.length > 0 ? (
+          <div className="results narrative-full">
+            {commentaryLines.map((line, idx) => (
               <div key={`c-${idx}-${line}`} className="line">{line}</div>
             ))}
           </div>
         ) : null}
-        {!showCommentary && (game.three_stars ?? []).length > 0 ? (
+        {showCommentary && !starsTopRight && (commentaryLines.length > 0 || stars.length > 0) ? (
+          <div className="game-detail-grid">
+            {commentaryLines.length > 0 ? (
+              <div className="results">
+                {commentaryLines.map((line, idx) => (
+                  <div key={`c-${idx}-${line}`} className="line">{line}</div>
+                ))}
+              </div>
+            ) : <div />}
+            {stars.length > 0 ? (
+              <div className="stars-block">
+                <div className="stars-title">Stars of the Game</div>
+                <div className="stars-list">
+                  {stars.map((s, idx) => {
+                    const parsed = parseStarSummary(s.summary);
+                    return (
+                      <div key={`star-${idx}-${s.summary}`} className="star-row">
+                        <div className="star-rank">{starGlyphs(s.label, idx)}</div>
+                        <div className="star-text">
+                          <div className="star-player">{parsed.playerLine}</div>
+                          {parsed.statLine ? <div className="star-stats">{parsed.statLine}</div> : null}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+        {!showCommentary && stars.length > 0 ? (
           <div className="muted small">
-            {(game.three_stars ?? []).map((s) => `${s.label}: ${s.summary}`).join(" | ")}
+            {stars.map((s) => `${s.label}: ${s.summary}`).join(" | ")}
           </div>
         ) : null}
       </div>

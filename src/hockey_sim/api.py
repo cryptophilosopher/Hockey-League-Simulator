@@ -82,6 +82,13 @@ class FreeAgentSignSelection(BaseModel):
     cap_hit: float | None = None
 
 
+class ContractExtendSelection(BaseModel):
+    team_name: str | None = None
+    player_name: str
+    years: int | None = None
+    cap_hit: float | None = None
+
+
 class TradeProposalSelection(BaseModel):
     team_name: str | None = None
     partner_team: str
@@ -252,12 +259,13 @@ class SimService:
             },
         }
         try:
-            self._write_json_with_backup(self.runtime_state_path, payload)
+            # Routine runtime autosaves happen very often; skip per-save backup copy for speed.
+            self._write_json_with_backup(self.runtime_state_path, payload, with_backup=False)
         except OSError:
             pass
 
-    def _write_json_with_backup(self, path: Path, payload: Any) -> None:
-        if path.exists():
+    def _write_json_with_backup(self, path: Path, payload: Any, *, with_backup: bool = True) -> None:
+        if with_backup and path.exists():
             backup = path.with_suffix(path.suffix + ".bak")
             try:
                 shutil.copy2(path, backup)
@@ -3081,6 +3089,8 @@ class SimService:
                 ),
                 "The series pressure remained high as each shift carried elimination-level intensity.",
             ]
+            raw_three_stars = game.get("three_stars", [])
+            three_stars = [row for row in raw_three_stars if isinstance(row, dict)] if isinstance(raw_three_stars, list) else []
             out.append(
                 {
                     "home": home,
@@ -3096,7 +3106,7 @@ class SimService:
                     "arena_capacity": arena_capacity,
                     "periods": periods,
                     "commentary": commentary,
-                    "three_stars": [],
+                    "three_stars": three_stars,
                     "round": round_name,
                     "game_number": game_no,
                     "winner": winner,
@@ -3537,6 +3547,7 @@ class SimService:
         rows: list[dict[str, Any]] = []
         for p in self.simulator.get_free_agents():
             ask_years, ask_cap, ask_type, ask_rfa = self.simulator._estimate_contract_offer(p)
+            origin_team = str(getattr(p, "free_agent_origin_team", "") or "")
             rows.append(
                 {
                     "name": p.name,
@@ -3547,8 +3558,18 @@ class SimService:
                     "ask_cap_hit": round(float(ask_cap), 2),
                     "contract_type": ask_type,
                     "is_rfa": bool(ask_rfa),
+                    "origin_team": origin_team,
+                    "is_user_origin": bool(origin_team and origin_team == team.name),
                 }
             )
+        rows = sorted(
+            rows,
+            key=lambda r: (
+                0 if bool(r.get("is_user_origin", False)) else 1,
+                -float(r.get("overall", 0.0)),
+                str(r.get("name", "")),
+            ),
+        )
         return {
             "team": team.name,
             "cap_limit": round(cap_limit, 2),
@@ -3591,6 +3612,47 @@ class SimService:
         self._add_news(
             kind="contract",
             headline=f"Free Agency: {chosen} signed {signed_player}",
+            details=f"{deal_years} years, ${deal_cap:.2f}M AAV.",
+            team=chosen,
+            day=self.simulator.current_day,
+        )
+        self._save_runtime_state()
+        return {"ok": True, "result": result}
+
+    def extend_contract(
+        self,
+        team_name: str | None,
+        player_name: str,
+        years: int | None = None,
+        cap_hit: float | None = None,
+    ) -> dict[str, Any]:
+        chosen = (team_name or self.user_team_name).strip()
+        if not chosen:
+            raise HTTPException(status_code=400, detail="No team selected")
+        if chosen != self.user_team_name:
+            raise HTTPException(status_code=403, detail="Can only extend contracts for your team")
+        result = self.simulator.extend_player_contract(
+            team_name=chosen,
+            player_name=player_name,
+            years=years,
+            cap_hit=cap_hit,
+        )
+        if not bool(result.get("ok", False)):
+            reason = str(result.get("reason", "failed"))
+            if reason == "player_not_found":
+                raise HTTPException(status_code=404, detail="Player not found on your roster.")
+            if reason == "cap_space":
+                raise HTTPException(status_code=400, detail="Not enough cap space for this extension.")
+            if reason == "contract_expired":
+                raise HTTPException(status_code=400, detail="Contract already expired. Re-sign in free agency.")
+            raise HTTPException(status_code=400, detail=f"Could not extend contract: {reason}")
+
+        signed_player = str(result.get("player", player_name))
+        deal_years = int(result.get("years", years or 1))
+        deal_cap = float(result.get("cap_hit", cap_hit or 0.0))
+        self._add_news(
+            kind="contract",
+            headline=f"Extension: {chosen} re-signed {signed_player}",
             details=f"{deal_years} years, ${deal_cap:.2f}M AAV.",
             team=chosen,
             day=self.simulator.current_day,
@@ -5250,7 +5312,7 @@ class SimService:
                 "playoffs_complete": bool(playoff_day.get("complete", False)),
             }
 
-        offseason = self.simulator.finalize_offseason_after_playoffs()
+        offseason = self.simulator.finalize_offseason_after_playoffs(user_team_name=self.user_team_name)
         if not offseason.get("advanced"):
             raise HTTPException(status_code=500, detail="Could not finalize offseason")
         completed = int(offseason.get("completed_season", self.simulator.season_number))
@@ -5392,6 +5454,7 @@ class SimService:
                 break
 
         recent_team_games: list[dict[str, Any]] = []
+        played_team_games_by_day: dict[int, dict[str, Any]] = {}
         for day_row in reversed(self.daily_results):
             if int(day_row.get("season", 0)) != self.simulator.season_number:
                 continue
@@ -5406,9 +5469,44 @@ class SimService:
                 if str(g.get("home", "")) == team.name or str(g.get("away", "")) == team.name:
                     row = dict(g)
                     row["game_day"] = int(day_row.get("day", 0))
+                    played_team_games_by_day[int(day_row.get("day", 0))] = row
                     recent_team_games.append(row)
             if len(recent_team_games) >= 6:
                 break
+
+        regular_day_offset = max(0, int(self.simulator.current_day) - int(self.simulator._day_index) - 1)
+        schedule_by_day: dict[int, dict[str, Any]] = {}
+        for idx, day_games in enumerate(self.simulator._season_days):
+            game_day = regular_day_offset + idx + 1
+            team_pair: tuple[Team, Team] | None = next(
+                ((home, away) for home, away in day_games if home.name == team.name or away.name == team.name),
+                None,
+            )
+            if team_pair is None:
+                continue
+            home, away = team_pair
+            schedule_by_day[game_day] = {
+                "game_day": game_day,
+                "home": home.name,
+                "away": away.name,
+                "status": "scheduled",
+            }
+        for game_day, played in played_team_games_by_day.items():
+            row = schedule_by_day.get(game_day)
+            if row is None:
+                row = {
+                    "game_day": game_day,
+                    "home": str(played.get("home", "")),
+                    "away": str(played.get("away", "")),
+                    "status": "played",
+                }
+            row.update(played)
+            row["status"] = "played"
+            schedule_by_day[game_day] = row
+        full_team_schedule: list[dict[str, Any]] = [
+            schedule_by_day[day]
+            for day in sorted(schedule_by_day.keys())
+        ]
 
         upcoming_game: dict[str, Any] | None = None
         upcoming_game_day: int | None = None
@@ -5440,7 +5538,7 @@ class SimService:
                 for home, away in day_games:
                     if home.name == team.name or away.name == team.name:
                         upcoming_game = {"home": home.name, "away": away.name}
-                        upcoming_game_day = idx + 1
+                        upcoming_game_day = regular_day_offset + idx + 1
                         break
                 if upcoming_game is not None:
                     break
@@ -5454,6 +5552,7 @@ class SimService:
             "day": self.simulator.current_day,
             "coach": {
                 "name": team.coach_name,
+                "age": int(getattr(team, "coach_age", 52)),
                 "rating": round(team.coach_rating, 2),
                 "style": team.coach_style,
                 "offense": round(team.coach_offense, 2),
@@ -5475,6 +5574,7 @@ class SimService:
             "latest_game": latest_game,
             "latest_day_games": latest_day_games,
             "recent_team_games": recent_team_games[:6],
+            "team_schedule": full_team_schedule,
             "upcoming_game_day": upcoming_game_day,
             "upcoming_phase": upcoming_phase if upcoming_game is not None else None,
             "upcoming_round": upcoming_round,
@@ -5623,8 +5723,9 @@ class SimService:
         return payload
 
     def reset(self) -> dict[str, Any]:
+        fresh_seed = random.SystemRandom().randint(1, 2_147_483_647)
         temp = LeagueSimulator(
-            teams=build_default_teams(),
+            teams=build_default_teams(world_seed=fresh_seed),
             games_per_matchup=2,
             history_path=str(self.data_root / "season_history.json"),
             career_history_path=str(self.data_root / "career_history.json"),
@@ -5885,6 +5986,17 @@ def free_agents(team: str | None = None) -> dict[str, Any]:
 def sign_free_agent(payload: FreeAgentSignSelection) -> dict[str, Any]:
     with service._lock:
         return service.sign_free_agent(
+            team_name=payload.team_name,
+            player_name=payload.player_name,
+            years=payload.years,
+            cap_hit=payload.cap_hit,
+        )
+
+
+@app.post("/api/contracts/extend")
+def extend_contract(payload: ContractExtendSelection) -> dict[str, Any]:
+    with service._lock:
+        return service.extend_contract(
             team_name=payload.team_name,
             player_name=payload.player_name,
             years=payload.years,

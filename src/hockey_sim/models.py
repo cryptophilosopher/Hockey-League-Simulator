@@ -67,6 +67,7 @@ class Player:
     cap_hit: float = 1.2
     contract_type: str = "entry"
     is_rfa: bool = True
+    free_agent_origin_team: str = ""
     career_seasons: list[dict[str, object]] = field(default_factory=list)
 
     @property
