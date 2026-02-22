@@ -104,6 +104,8 @@ class LeagueSimulator:
                 if isinstance(raw_team_needs, dict)
                 else {}
             )
+            raw_draft_state = loaded_state.get("current_draft_state")
+            self.current_draft_state = dict(raw_draft_state) if isinstance(raw_draft_state, dict) else {}
         else:
             self._day_index = 0
             self.free_agents = []
@@ -113,6 +115,7 @@ class LeagueSimulator:
             self.last_offseason_drafted_details = {}
             self.draft_focus_by_team = {}
             self.team_needs_by_team = {}
+            self.current_draft_state = {}
         raw_pending_playoffs = loaded_state.get("pending_playoffs")
         self.pending_playoffs: dict[str, object] | None = raw_pending_playoffs if isinstance(raw_pending_playoffs, dict) else None
         raw_pending_days = loaded_state.get("pending_playoff_days")
@@ -208,6 +211,7 @@ class LeagueSimulator:
             "last_offseason_drafted_details": self.last_offseason_drafted_details,
             "draft_focus_by_team": self.draft_focus_by_team,
             "team_needs_by_team": self.team_needs_by_team,
+            "current_draft_state": self.current_draft_state,
             "pending_playoffs": self.pending_playoffs,
             "pending_playoff_days": self.pending_playoff_days,
             "pending_playoff_day_index": self.pending_playoff_day_index,
@@ -1305,29 +1309,84 @@ class LeagueSimulator:
                 totals[away.name] = totals.get(away.name, 0) + 1
         return totals
 
+    def _conference_playoff_qualifiers_from_rows(
+        self,
+        conf_rows: list[TeamRecord],
+        points_override: dict[str, int] | None = None,
+    ) -> set[str]:
+        if not conf_rows:
+            return set()
+        points_override = points_override or {}
+        divisions = sorted({rec.team.division for rec in conf_rows})
+        ordered = sorted(
+            conf_rows,
+            key=lambda rec: (
+                int(points_override.get(rec.team.name, rec.points)),
+                rec.goal_diff,
+                rec.goals_for,
+            ),
+            reverse=True,
+        )
+        if len(divisions) != 2:
+            return {rec.team.name for rec in ordered[: min(8, len(ordered))]}
+        div_a, div_b = divisions[0], divisions[1]
+        a_rows = [r for r in ordered if r.team.division == div_a]
+        b_rows = [r for r in ordered if r.team.division == div_b]
+        a_top = a_rows[:3]
+        b_top = b_rows[:3]
+        qualified = {r.team.name for r in a_top + b_top}
+        wildcards = [r for r in ordered if r.team.name not in qualified][:2]
+        qualified.update(r.team.name for r in wildcards)
+        return qualified
+
+    def _current_playoff_field(self) -> set[str]:
+        qualified: set[str] = set()
+        for conference in self.get_conferences():
+            conf_rows = self.get_conference_standings(conference)
+            qualified.update(self._conference_playoff_qualifiers_from_rows(conf_rows))
+        return qualified
+
     def get_playoff_clinch_status(self) -> dict[str, bool]:
         clinched: dict[str, bool] = {team.name: False for team in self.teams}
+        # Once playoffs are active, the playoff field is concrete from seeds.
+        if isinstance(self.pending_playoffs, dict):
+            seeds = self.pending_playoffs.get("seeds", [])
+            if isinstance(seeds, list):
+                for row in seeds:
+                    if not isinstance(row, dict):
+                        continue
+                    team_name = str(row.get("team", "")).strip()
+                    if team_name:
+                        clinched[team_name] = True
+                return clinched
+
+        # Season complete: playoff field is deterministic from standings.
+        if self.is_complete():
+            for team_name in self._current_playoff_field():
+                clinched[team_name] = True
+            return clinched
+
+        # In-season clinch: pessimistic test aligned to actual qualifier structure.
+        # A team is clinched only if it still qualifies when every other team is
+        # given its maximum possible points while that team stays at current points.
         total_games = self._team_total_games()
         for conference in self.get_conferences():
             conf_rows = self.get_conference_standings(conference)
             if not conf_rows:
                 continue
-            spots = min(8, len(conf_rows))
-            if spots <= 0:
-                continue
-            for rank_idx, rec in enumerate(conf_rows, start=1):
-                if rank_idx > spots:
-                    continue
-                teams_that_can_reach_or_pass = 0
-                for other in conf_rows:
-                    if other.team.name == rec.team.name:
-                        continue
-                    other_total = total_games.get(other.team.name, rec.games_played)
-                    other_remaining = max(0, other_total - other.games_played)
-                    other_max_points = other.points + (2 * other_remaining)
-                    if other_max_points >= rec.points:
-                        teams_that_can_reach_or_pass += 1
-                if teams_that_can_reach_or_pass < spots:
+            max_points_by_team: dict[str, int] = {}
+            for rec in conf_rows:
+                total = total_games.get(rec.team.name, rec.games_played)
+                remaining = max(0, total - rec.games_played)
+                max_points_by_team[rec.team.name] = rec.points + (2 * remaining)
+            for rec in conf_rows:
+                pessimistic_points = dict(max_points_by_team)
+                pessimistic_points[rec.team.name] = rec.points
+                qualified = self._conference_playoff_qualifiers_from_rows(
+                    conf_rows,
+                    points_override=pessimistic_points,
+                )
+                if rec.team.name in qualified:
                     clinched[rec.team.name] = True
         return clinched
 
@@ -1714,9 +1773,16 @@ class LeagueSimulator:
         quality: float,
         draft_round: int | None = None,
         draft_overall: int | None = None,
+        name: str | None = None,
+        birth_country: str | None = None,
+        birth_country_code: str | None = None,
+        age: int | None = None,
     ) -> Player:
         quality = self._clamp(quality, 0.35, 1.0)
-        birth_country, birth_country_code = self._sample_birth_country()
+        if not birth_country or not birth_country_code:
+            sampled_country, sampled_country_code = self._sample_birth_country()
+            birth_country = birth_country or sampled_country
+            birth_country_code = birth_country_code or sampled_country_code
         if quality >= 0.82:
             tier = "NHL"
             seasons_to_nhl = 0
@@ -1743,7 +1809,7 @@ class LeagueSimulator:
             playmaking = 0.95 + quality * 1.55 + self._rng.uniform(-0.10, 0.10)
         return Player(
             team_name=team_name,
-            name=self._name_generator.next_name(birth_country_code),
+            name=name or self._name_generator.next_name(birth_country_code),
             position=position,
             birth_country=birth_country,
             birth_country_code=birth_country_code,
@@ -1753,7 +1819,7 @@ class LeagueSimulator:
             goaltending=goaltending,
             physical=physical,
             durability=durability,
-            age=18 + self._rng.randrange(0, 3),
+            age=int(age) if age is not None else (18 + self._rng.randrange(0, 3)),
             prime_age=self._rng.randint(self.prime_age_min - 1, self.prime_age_max + 1),
             draft_season=self.season_number,
             draft_round=draft_round,
@@ -1955,6 +2021,386 @@ class LeagueSimulator:
         if focus in {"c", "lw", "rw", "d", "g"}:
             return focus.upper()
         return None
+
+    def _draft_rounds(self) -> int:
+        return 3
+
+    def _build_draft_order(self) -> list[str]:
+        standings_worst_to_best = list(reversed(self.get_standings()))
+        order: list[str] = []
+        for _round in range(1, self._draft_rounds() + 1):
+            for rec in standings_worst_to_best:
+                order.append(rec.team.name)
+        return order
+
+    def _init_draft_state(self) -> None:
+        season = int(self.season_number)
+        current = self.current_draft_state if isinstance(self.current_draft_state, dict) else {}
+        if current and int(current.get("season", 0)) == season:
+            has_prospects = isinstance(current.get("prospects", []), list) and len(current.get("prospects", [])) > 0
+            has_picks = isinstance(current.get("picks", []), list) and len(current.get("picks", [])) > 0
+            if has_prospects and has_picks:
+                return
+
+        order = self._build_draft_order()
+        total_picks = len(order)
+        top_positions = ["C", "LW", "RW", "D", "G"]
+        prospects: list[dict[str, object]] = []
+        for idx in range(max(total_picks + 36, len(self.teams) * 5)):
+            base_pick = idx + 1
+            quality = self._draft_quality_for_pick(base_pick, max(1, total_picks))
+            pos_roll = self._rng.random()
+            if pos_roll < 0.37:
+                position = "C"
+            elif pos_roll < 0.56:
+                position = "LW"
+            elif pos_roll < 0.75:
+                position = "RW"
+            elif pos_roll < 0.90:
+                position = "D"
+            else:
+                position = "G"
+            birth_country, birth_country_code = self._sample_birth_country()
+            scout_noise = self._rng.uniform(-0.15, 0.15)
+            projected = self._clamp(quality + scout_noise, 0.30, 0.99)
+            if position in top_positions and base_pick <= len(top_positions):
+                projected = self._clamp(projected + 0.05, 0.30, 0.99)
+            prospect_id = f"s{season}-p{idx+1}"
+            eta = 0 if quality >= 0.82 else (1 if quality >= 0.62 else 2 + (1 if self._rng.random() < 0.25 else 0))
+            risk = self._clamp(abs(projected - quality) + self._rng.uniform(0.04, 0.16), 0.04, 0.30)
+            prospects.append(
+                {
+                    "id": prospect_id,
+                    "name": self._name_generator.next_name(birth_country_code),
+                    "position": position,
+                    "age": int(18 + self._rng.randrange(0, 3)),
+                    "country": birth_country,
+                    "country_code": birth_country_code,
+                    "true_quality": round(float(quality), 4),
+                    "projected_quality": round(float(projected), 4),
+                    "eta": int(eta),
+                    "risk": round(float(risk), 3),
+                }
+            )
+
+        prospects.sort(
+            key=lambda p: (
+                -float(p.get("projected_quality", 0.0)),
+                0 if str(p.get("position", "")) in {"C", "D"} else 1,
+                str(p.get("name", "")),
+            )
+        )
+        for idx, p in enumerate(prospects, start=1):
+            p["rank"] = idx
+
+        picks: list[dict[str, object]] = []
+        for idx, team_name in enumerate(order, start=1):
+            round_no = 1 + ((idx - 1) // max(1, len(self.teams)))
+            picks.append(
+                {
+                    "overall": idx,
+                    "round": round_no,
+                    "team": team_name,
+                    "prospect_id": "",
+                    "name": "",
+                    "position": "",
+                    "country": "",
+                    "country_code": "",
+                    "age": 0,
+                    "quality": 0.0,
+                }
+            )
+
+        self.current_draft_state = {
+            "season": season,
+            "active": True,
+            "rounds": self._draft_rounds(),
+            "current_pick_index": 0,
+            "prospects": prospects,
+            "picks": picks,
+            "boards": {},
+        }
+
+    def _draft_available_ids(self) -> set[str]:
+        state = self.current_draft_state if isinstance(self.current_draft_state, dict) else {}
+        all_ids = {
+            str(p.get("id", ""))
+            for p in (state.get("prospects", []) if isinstance(state.get("prospects", []), list) else [])
+            if isinstance(p, dict) and str(p.get("id", ""))
+        }
+        picks = state.get("picks", [])
+        if isinstance(picks, list):
+            for row in picks:
+                if not isinstance(row, dict):
+                    continue
+                pid = str(row.get("prospect_id", ""))
+                if pid:
+                    all_ids.discard(pid)
+        return all_ids
+
+    def _draft_state_normalized(self) -> dict[str, object]:
+        self._init_draft_state()
+        state = self.current_draft_state if isinstance(self.current_draft_state, dict) else {}
+        if int(state.get("season", 0)) != int(self.season_number):
+            self.current_draft_state = {}
+            self._init_draft_state()
+            state = self.current_draft_state if isinstance(self.current_draft_state, dict) else {}
+        return state
+
+    def _draft_board_for_team(self, team_name: str) -> list[str]:
+        state = self._draft_state_normalized()
+        boards = state.get("boards", {})
+        if not isinstance(boards, dict):
+            boards = {}
+            state["boards"] = boards
+        raw = boards.get(team_name, [])
+        if not isinstance(raw, list):
+            raw = []
+        available_ids = self._draft_available_ids()
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for item in raw:
+            pid = str(item)
+            if not pid or pid in seen or pid not in available_ids:
+                continue
+            deduped.append(pid)
+            seen.add(pid)
+        boards[team_name] = deduped
+        return deduped
+
+    def get_draft_state(self, team_name: str) -> dict[str, object]:
+        state = self._draft_state_normalized()
+        picks = state.get("picks", [])
+        picks_rows = [dict(row) for row in picks if isinstance(row, dict)]
+        current_idx = int(state.get("current_pick_index", 0))
+        current_idx = max(0, min(current_idx, len(picks_rows)))
+        active = bool(state.get("active", False)) and current_idx < len(picks_rows)
+        if not active:
+            current_idx = len(picks_rows)
+            state["active"] = False
+            state["current_pick_index"] = current_idx
+        next_pick = picks_rows[current_idx] if active and current_idx < len(picks_rows) else None
+        recent = [row for row in picks_rows if str(row.get("prospect_id", ""))]
+        recent = recent[-18:]
+        user_board = self._draft_board_for_team(team_name)
+        return {
+            "season": int(state.get("season", self.season_number)),
+            "active": active,
+            "rounds": int(state.get("rounds", self._draft_rounds())),
+            "total_picks": len(picks_rows),
+            "current_pick_index": current_idx,
+            "next_pick": next_pick,
+            "recent_picks": recent,
+            "user_board": user_board,
+            "user_team": team_name,
+        }
+
+    def get_draft_class(self, team_name: str) -> dict[str, object]:
+        state = self._draft_state_normalized()
+        prospects_raw = state.get("prospects", [])
+        prospects = [dict(p) for p in prospects_raw if isinstance(p, dict)]
+        taken: dict[str, dict[str, object]] = {}
+        for row in (state.get("picks", []) if isinstance(state.get("picks", []), list) else []):
+            if not isinstance(row, dict):
+                continue
+            pid = str(row.get("prospect_id", ""))
+            if pid:
+                taken[pid] = row
+        board = self._draft_board_for_team(team_name)
+        board_rank = {pid: idx + 1 for idx, pid in enumerate(board)}
+        rows: list[dict[str, object]] = []
+        for p in prospects:
+            pid = str(p.get("id", ""))
+            row = dict(p)
+            pick_row = taken.get(pid)
+            row["available"] = pick_row is None
+            if pick_row is not None:
+                row["drafted_by"] = str(pick_row.get("team", ""))
+                row["drafted_overall"] = int(pick_row.get("overall", 0))
+                row["drafted_round"] = int(pick_row.get("round", 0))
+            row["user_board_rank"] = board_rank.get(pid)
+            rows.append(row)
+        rows.sort(
+            key=lambda p: (
+                0 if bool(p.get("available", False)) else 1,
+                int(p.get("rank", 9999)),
+                str(p.get("name", "")),
+            )
+        )
+        return {
+            "season": int(state.get("season", self.season_number)),
+            "rows": rows,
+        }
+
+    def set_draft_board(self, team_name: str, prospect_ids: list[str]) -> list[str]:
+        state = self._draft_state_normalized()
+        if not bool(state.get("active", False)):
+            return []
+        boards = state.get("boards", {})
+        if not isinstance(boards, dict):
+            boards = {}
+            state["boards"] = boards
+        available = self._draft_available_ids()
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for raw in prospect_ids:
+            pid = str(raw).strip()
+            if not pid or pid in seen or pid not in available:
+                continue
+            deduped.append(pid)
+            seen.add(pid)
+        boards[team_name] = deduped[:80]
+        self._save_state()
+        return list(boards[team_name])
+
+    def _cpu_pick_position_fit_bonus(self, team_name: str, position: str) -> float:
+        team = self.get_team(team_name)
+        if team is None:
+            return 0.0
+        focus = self._team_focus_position(team)
+        if focus is None:
+            return 0.0
+        if focus == position:
+            return 0.16
+        if focus in {"LW", "RW", "C"} and position in {"LW", "RW", "C"}:
+            return 0.08
+        return -0.04
+
+    def _cpu_choose_draft_prospect_id(self, team_name: str) -> str | None:
+        state = self._draft_state_normalized()
+        prospects = [dict(p) for p in (state.get("prospects", []) if isinstance(state.get("prospects", []), list) else [])]
+        available = self._draft_available_ids()
+        if not available:
+            return None
+        prospect_by_id = {str(p.get("id", "")): p for p in prospects if str(p.get("id", ""))}
+        board = self._draft_board_for_team(team_name)
+        # Most of the time, CPU follows board top if still available.
+        if board and self._rng.random() < 0.74:
+            for pid in board:
+                if pid in available:
+                    return pid
+        candidates: list[tuple[float, str]] = []
+        for pid in available:
+            p = prospect_by_id.get(pid)
+            if p is None:
+                continue
+            projected = float(p.get("projected_quality", 0.0))
+            noise = self._rng.uniform(-0.10, 0.10)
+            fit = self._cpu_pick_position_fit_bonus(team_name, str(p.get("position", "")))
+            score = projected + fit + noise
+            candidates.append((score, pid))
+        if not candidates:
+            return None
+        candidates.sort(key=lambda row: row[0], reverse=True)
+        # Mistakes happen: occasional reach down the board.
+        if len(candidates) >= 6 and self._rng.random() < 0.17:
+            return candidates[min(len(candidates) - 1, self._rng.randint(3, 8))][1]
+        return candidates[0][1]
+
+    def _finalize_single_draft_pick(self, prospect_id: str) -> dict[str, object]:
+        state = self._draft_state_normalized()
+        picks = state.get("picks", [])
+        prospects = state.get("prospects", [])
+        if not isinstance(picks, list) or not isinstance(prospects, list):
+            raise ValueError("Draft state unavailable")
+        current_idx = int(state.get("current_pick_index", 0))
+        if current_idx < 0 or current_idx >= len(picks):
+            state["active"] = False
+            raise ValueError("Draft is complete")
+        pick_row = picks[current_idx]
+        if not isinstance(pick_row, dict):
+            raise ValueError("Invalid draft pick row")
+        prospect = next((p for p in prospects if isinstance(p, dict) and str(p.get("id", "")) == prospect_id), None)
+        if prospect is None:
+            raise ValueError("Prospect not found")
+        if prospect_id not in self._draft_available_ids():
+            raise ValueError("Prospect already drafted")
+        pick_row["prospect_id"] = prospect_id
+        pick_row["name"] = str(prospect.get("name", ""))
+        pick_row["position"] = str(prospect.get("position", ""))
+        pick_row["country"] = str(prospect.get("country", ""))
+        pick_row["country_code"] = str(prospect.get("country_code", ""))
+        pick_row["age"] = int(prospect.get("age", 18))
+        pick_row["quality"] = float(prospect.get("true_quality", 0.5))
+        state["current_pick_index"] = current_idx + 1
+        if int(state.get("current_pick_index", 0)) >= len(picks):
+            state["active"] = False
+        self._save_state()
+        return dict(pick_row)
+
+    def make_user_draft_pick(self, team_name: str, prospect_id: str) -> dict[str, object]:
+        state = self._draft_state_normalized()
+        if not bool(state.get("active", False)):
+            raise ValueError("Draft is not active")
+        picks = state.get("picks", [])
+        if not isinstance(picks, list):
+            raise ValueError("Draft picks unavailable")
+        current_idx = int(state.get("current_pick_index", 0))
+        if current_idx < 0 or current_idx >= len(picks):
+            raise ValueError("Draft is complete")
+        next_row = picks[current_idx] if isinstance(picks[current_idx], dict) else {}
+        if str(next_row.get("team", "")) != team_name:
+            raise ValueError("Not your pick")
+        picked = self._finalize_single_draft_pick(prospect_id.strip())
+        board = self._draft_board_for_team(team_name)
+        if str(picked.get("prospect_id", "")) in board:
+            self.set_draft_board(team_name, [pid for pid in board if pid != str(picked.get("prospect_id", ""))])
+        return picked
+
+    def sim_draft_to_user_pick(self, team_name: str) -> dict[str, object]:
+        state = self._draft_state_normalized()
+        picks = state.get("picks", [])
+        if not isinstance(picks, list):
+            raise ValueError("Draft picks unavailable")
+        moved = 0
+        while bool(state.get("active", False)):
+            current_idx = int(state.get("current_pick_index", 0))
+            if current_idx < 0 or current_idx >= len(picks):
+                state["active"] = False
+                break
+            row = picks[current_idx] if isinstance(picks[current_idx], dict) else {}
+            if str(row.get("team", "")) == team_name:
+                break
+            choice = self._cpu_choose_draft_prospect_id(str(row.get("team", "")))
+            if not choice:
+                break
+            self._finalize_single_draft_pick(choice)
+            moved += 1
+            state = self._draft_state_normalized()
+            picks = state.get("picks", [])
+            if not isinstance(picks, list):
+                break
+        payload = self.get_draft_state(team_name)
+        payload["simulated_picks"] = moved
+        return payload
+
+    def _autopick_remaining_draft(self, user_team_name: str | None = None) -> None:
+        state = self._draft_state_normalized()
+        picks = state.get("picks", [])
+        if not isinstance(picks, list):
+            return
+        while bool(state.get("active", False)):
+            current_idx = int(state.get("current_pick_index", 0))
+            if current_idx < 0 or current_idx >= len(picks):
+                state["active"] = False
+                break
+            row = picks[current_idx] if isinstance(picks[current_idx], dict) else {}
+            team_name = str(row.get("team", ""))
+            choice: str | None = None
+            if user_team_name and team_name == user_team_name:
+                for pid in self._draft_board_for_team(team_name):
+                    if pid in self._draft_available_ids():
+                        choice = pid
+                        break
+            if not choice:
+                choice = self._cpu_choose_draft_prospect_id(team_name)
+            if not choice:
+                break
+            self._finalize_single_draft_pick(choice)
+            state = self._draft_state_normalized()
+            picks = state.get("picks", [])
+            if not isinstance(picks, list):
+                break
 
     def _promote_from_minors(self, team: Team, player: Player, replacement_for: str = "") -> bool:
         if player not in team.minor_roster:
@@ -2443,26 +2889,38 @@ class LeagueSimulator:
             noise += self._rng.uniform(0.04, 0.10)
         return self._clamp(baseline + noise, 0.35, 0.99)
 
-    def _run_draft(self) -> tuple[dict[str, list[str]], dict[str, list[dict[str, object]]]]:
+    def _run_draft(self, user_team_name: str | None = None) -> tuple[dict[str, list[str]], dict[str, list[dict[str, object]]]]:
         drafted: dict[str, list[str]] = {}
         drafted_name_set: dict[str, set[str]] = {}
         draft_details: dict[str, list[dict[str, object]]] = {}
-        standings_worst_to_best = list(reversed(self.get_standings()))
-        total_teams = len(standings_worst_to_best)
-
-        # Round 1: strict reverse-standings order with numbered picks.
-        for pick_idx, rec in enumerate(standings_worst_to_best, start=1):
-            team = rec.team
+        self._autopick_remaining_draft(user_team_name=user_team_name)
+        state = self._draft_state_normalized()
+        picks = [dict(row) for row in (state.get("picks", []) if isinstance(state.get("picks", []), list) else []) if isinstance(row, dict)]
+        for pick_row in picks:
+            team_name = str(pick_row.get("team", ""))
+            if not team_name:
+                continue
+            team = self.get_team(team_name)
+            if team is None:
+                continue
             drafted.setdefault(team.name, [])
             drafted_name_set.setdefault(team.name, set())
             draft_details.setdefault(team.name, [])
-            position = self._choose_draft_position(team)
+            prospect_name = str(pick_row.get("name", "")).strip()
+            position = str(pick_row.get("position", "")).strip() or self._choose_draft_position(team)
+            quality = float(pick_row.get("quality", 0.0) or 0.0)
+            if quality <= 0.0:
+                quality = self._draft_quality_for_pick(int(pick_row.get("overall", 1) or 1), max(1, len(self.teams) * self._draft_rounds()))
             drafted_player = self._create_draft_player(
                 team_name=team.name,
                 position=position,
-                quality=self._draft_quality_for_pick(pick_idx, total_teams),
-                draft_round=1,
-                draft_overall=pick_idx,
+                quality=quality,
+                draft_round=(int(pick_row.get("round", 0)) if int(pick_row.get("round", 0) or 0) > 0 else None),
+                draft_overall=(int(pick_row.get("overall", 0)) if int(pick_row.get("overall", 0) or 0) > 0 else None),
+                name=prospect_name or None,
+                birth_country=str(pick_row.get("country", "") or "") or None,
+                birth_country_code=str(pick_row.get("country_code", "") or "") or None,
+                age=(int(pick_row.get("age", 18)) if int(pick_row.get("age", 0) or 0) > 0 else None),
             )
             team.minor_roster.append(drafted_player)
             drafted[team.name].append(drafted_player.name)
@@ -2473,11 +2931,12 @@ class LeagueSimulator:
                     "position": drafted_player.position,
                     "country": drafted_player.birth_country,
                     "country_code": drafted_player.birth_country_code,
-                    "round": 1,
-                    "overall": pick_idx,
+                    "round": drafted_player.draft_round,
+                    "overall": drafted_player.draft_overall,
                 }
             )
 
+        standings_worst_to_best = list(reversed(self.get_standings()))
         # Keep NHL roster filled to cap with best available players from minors/free-agents.
         for rec in standings_worst_to_best:
             team = rec.team
@@ -2544,6 +3003,8 @@ class LeagueSimulator:
                 team.minor_roster.append(cut_player)
             team.set_default_lineup()
 
+        # Clear consumed draft state after offseason draft completes.
+        self.current_draft_state = {}
         return (
             {team_name: picks for team_name, picks in drafted.items() if picks},
             {team_name: rows for team_name, rows in draft_details.items() if rows},
@@ -3722,7 +4183,7 @@ class LeagueSimulator:
 
         self._record_career_season_stats(self.season_number)
         retired, retired_numbers = self._age_and_retire_players()
-        drafted, drafted_details = self._run_draft()
+        drafted, drafted_details = self._run_draft(user_team_name=user_team_name)
         free_agency = self._run_contract_and_free_agency(user_team_name=user_team_name)
         self._clear_season_player_stats()
         self.last_offseason_retired = list(retired)
@@ -3801,6 +4262,7 @@ class LeagueSimulator:
         self.last_offseason_drafted_details = {}
         self.free_agents = []
         self.draft_focus_by_team = {}
+        self.current_draft_state = {}
         self.pending_playoffs = None
         self.pending_playoff_days = []
         self.pending_playoff_day_index = 0

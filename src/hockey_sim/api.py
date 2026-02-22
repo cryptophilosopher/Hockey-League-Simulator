@@ -54,6 +54,20 @@ class DraftNeedSelection(BaseModel):
     focus: str = "auto"
     team_name: str | None = None
 
+class DraftBoardSelection(BaseModel):
+    team_name: str | None = None
+    prospect_ids: list[str] = []
+
+
+class DraftPickSelection(BaseModel):
+    team_name: str | None = None
+    prospect_id: str
+
+
+class DraftAdvanceSelection(BaseModel):
+    team_name: str | None = None
+
+
 class TeamNeedsSelection(BaseModel):
     team_name: str | None = None
     mode: str = "auto"
@@ -2587,10 +2601,47 @@ class SimService:
             by_division.setdefault(rec.team.division, []).append(rec)
             by_conference.setdefault(rec.team.conference, []).append(rec)
 
-        playoffs = self.simulator.get_playoff_clinch_status()
-        for team_name, clinched in playoffs.items():
-            if clinched:
+        def _qualified_playoff_teams_from_standings() -> set[str]:
+            qualified: set[str] = set()
+            for conference in self.simulator.get_conferences():
+                conf_rows = self.simulator.get_conference_standings(conference)
+                if not conf_rows:
+                    continue
+                divisions = sorted({row.team.division for row in conf_rows})
+                # NHL-style conference shape: 2 divisions => top 3 per division + 2 wildcards.
+                if len(divisions) == 2:
+                    div_a, div_b = divisions[0], divisions[1]
+                    a_rows = [r for r in conf_rows if r.team.division == div_a]
+                    b_rows = [r for r in conf_rows if r.team.division == div_b]
+                    a_top = a_rows[:3]
+                    b_top = b_rows[:3]
+                    qualified.update(r.team.name for r in a_top)
+                    qualified.update(r.team.name for r in b_top)
+                    remaining = [r for r in conf_rows if r.team.name not in qualified]
+                    qualified.update(r.team.name for r in remaining[:2])
+                else:
+                    # Fallback when conference/division layout is non-standard.
+                    qualified.update(r.team.name for r in conf_rows[: min(8, len(conf_rows))])
+            return qualified
+
+        # Keep standings tags in sync with actual playoff reality once playoffs are active.
+        if self.simulator.has_playoff_session() and isinstance(self.simulator.pending_playoffs, dict):
+            seeds = self.simulator.pending_playoffs.get("seeds", [])
+            if isinstance(seeds, list):
+                for row in seeds:
+                    if not isinstance(row, dict):
+                        continue
+                    team_name = str(row.get("team", "")).strip()
+                    if team_name:
+                        tags.setdefault(team_name, []).append("x")
+        elif self.simulator.is_complete():
+            for team_name in _qualified_playoff_teams_from_standings():
                 tags.setdefault(team_name, []).append("x")
+        else:
+            playoffs = self.simulator.get_playoff_clinch_status()
+            for team_name, clinched in playoffs.items():
+                if clinched:
+                    tags.setdefault(team_name, []).append("x")
 
         for _div, rows in by_division.items():
             if not rows:
@@ -3197,6 +3248,7 @@ class SimService:
                 "goaltending": round(p.goaltending, 2),
                 "physical": round(p.physical, 2),
                 "durability": round(p.durability, 2),
+                "overall": round(self._player_overall(p), 2),
             }
 
         by_name = {p.name: p for p in team.roster}
@@ -3679,6 +3731,63 @@ class SimService:
             "focus": selected,
             "options": list(self.simulator.DRAFT_FOCUS_OPTIONS),
         }
+
+    def draft_state(self, team_name: str | None = None) -> dict[str, Any]:
+        chosen = (team_name or self.user_team_name).strip()
+        if not chosen:
+            raise HTTPException(status_code=400, detail="No team selected")
+        if self.simulator.get_team(chosen) is None:
+            raise HTTPException(status_code=404, detail="Team not found")
+        return self.simulator.get_draft_state(chosen)
+
+    def draft_class(self, team_name: str | None = None) -> dict[str, Any]:
+        chosen = (team_name or self.user_team_name).strip()
+        if not chosen:
+            raise HTTPException(status_code=400, detail="No team selected")
+        if self.simulator.get_team(chosen) is None:
+            raise HTTPException(status_code=404, detail="Team not found")
+        return self.simulator.get_draft_class(chosen)
+
+    def set_draft_board(self, team_name: str | None, prospect_ids: list[str]) -> dict[str, Any]:
+        chosen = (team_name or self.user_team_name).strip()
+        if not chosen:
+            raise HTTPException(status_code=400, detail="No team selected")
+        if self.simulator.get_team(chosen) is None:
+            raise HTTPException(status_code=404, detail="Team not found")
+        if chosen != self.user_team_name:
+            raise HTTPException(status_code=403, detail="Can only set draft board for your team")
+        board = self.simulator.set_draft_board(chosen, prospect_ids)
+        return {"ok": True, "team": chosen, "prospect_ids": board}
+
+    def make_draft_pick(self, team_name: str | None, prospect_id: str) -> dict[str, Any]:
+        chosen = (team_name or self.user_team_name).strip()
+        if not chosen:
+            raise HTTPException(status_code=400, detail="No team selected")
+        if self.simulator.get_team(chosen) is None:
+            raise HTTPException(status_code=404, detail="Team not found")
+        if chosen != self.user_team_name:
+            raise HTTPException(status_code=403, detail="Can only make picks for your team")
+        try:
+            pick = self.simulator.make_user_draft_pick(chosen, prospect_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        self._save_runtime_state()
+        return {"ok": True, "pick": pick, "state": self.simulator.get_draft_state(chosen)}
+
+    def sim_draft_to_user_pick(self, team_name: str | None = None) -> dict[str, Any]:
+        chosen = (team_name or self.user_team_name).strip()
+        if not chosen:
+            raise HTTPException(status_code=400, detail="No team selected")
+        if self.simulator.get_team(chosen) is None:
+            raise HTTPException(status_code=404, detail="Team not found")
+        if chosen != self.user_team_name:
+            raise HTTPException(status_code=403, detail="Can only simulate from your team perspective")
+        try:
+            state = self.simulator.sim_draft_to_user_pick(chosen)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        self._save_runtime_state()
+        return {"ok": True, "state": state}
 
     def team_needs(self, team_name: str | None = None) -> dict[str, Any]:
         chosen = (team_name or self.user_team_name).strip()
@@ -5470,9 +5579,8 @@ class SimService:
                     row = dict(g)
                     row["game_day"] = int(day_row.get("day", 0))
                     played_team_games_by_day[int(day_row.get("day", 0))] = row
-                    recent_team_games.append(row)
-            if len(recent_team_games) >= 6:
-                break
+                    if len(recent_team_games) < 6:
+                        recent_team_games.append(row)
 
         regular_day_offset = max(0, int(self.simulator.current_day) - int(self.simulator._day_index) - 1)
         schedule_by_day: dict[int, dict[str, Any]] = {}
@@ -5507,6 +5615,53 @@ class SimService:
             schedule_by_day[day]
             for day in sorted(schedule_by_day.keys())
         ]
+        if self.simulator.has_playoff_session():
+            regular_total_days = int(self.simulator.total_days)
+            played_playoff_games: dict[int, dict[str, Any]] = {}
+            for day_row in self.daily_results:
+                if int(day_row.get("season", 0)) != self.simulator.season_number:
+                    continue
+                if str(day_row.get("phase", "regular")) != "playoffs":
+                    continue
+                playoff_day = int(day_row.get("day", 0))
+                games = day_row.get("games", [])
+                if not isinstance(games, list):
+                    continue
+                for g in games:
+                    if not isinstance(g, dict):
+                        continue
+                    if str(g.get("home", "")) != team.name and str(g.get("away", "")) != team.name:
+                        continue
+                    row = dict(g)
+                    row["status"] = "played"
+                    row["phase"] = "playoffs"
+                    row["game_day"] = regular_total_days + playoff_day
+                    played_playoff_games[playoff_day] = row
+                    break
+            pending = self.simulator.pending_playoff_days
+            for day_idx, day_row in enumerate(pending, start=1):
+                round_name = str(day_row.get("round", "Playoffs"))
+                serialized = self._serialize_playoff_games(
+                    day_row.get("games", []) if isinstance(day_row.get("games", []), list) else [],
+                    round_name,
+                )
+                team_game = next(
+                    (g for g in serialized if str(g.get("home", "")) == team.name or str(g.get("away", "")) == team.name),
+                    None,
+                )
+                absolute_day = regular_total_days + day_idx
+                if team_game is None and day_idx not in played_playoff_games:
+                    continue
+                if day_idx in played_playoff_games:
+                    full_team_schedule.append(played_playoff_games[day_idx])
+                    continue
+                row = dict(team_game)
+                row["status"] = "scheduled"
+                row["phase"] = "playoffs"
+                row["round"] = round_name
+                row["game_day"] = absolute_day
+                full_team_schedule.append(row)
+            full_team_schedule.sort(key=lambda r: int(r.get("game_day", 0)))
 
         upcoming_game: dict[str, Any] | None = None
         upcoming_game_day: int | None = None
@@ -5609,6 +5764,17 @@ class SimService:
         else:
             payload["playoffs"] = {"active": False}
         standings = {r.team.name: r for r in self.simulator.get_standings()}
+        standings_rows = self.simulator.get_standings()
+        pp_order = sorted(
+            standings_rows,
+            key=lambda r: (-float(getattr(r, "pp_pct", 0.0)), r.team.name),
+        )
+        pk_order = sorted(
+            standings_rows,
+            key=lambda r: (-float(getattr(r, "pk_pct", 0.0)), r.team.name),
+        )
+        pp_rank_map = {row.team.name: idx + 1 for idx, row in enumerate(pp_order)}
+        pk_rank_map = {row.team.name: idx + 1 for idx, row in enumerate(pk_order)}
         rec = standings.get(team.name)
         div_rows = self.simulator.get_division_standings(team.division)
         div_rank = next((i + 1 for i, row in enumerate(div_rows) if row.team.name == team.name), 0)
@@ -5619,6 +5785,8 @@ class SimService:
             "points": rec.points if rec is not None else 0,
             "pp_pct": round(rec.pp_pct, 3) if rec is not None else 0.0,
             "pk_pct": round(rec.pk_pct, 3) if rec is not None else 0.0,
+            "pp_rank": int(pp_rank_map.get(team.name, 0)),
+            "pk_rank": int(pk_rank_map.get(team.name, 0)),
         }
         payload["coach"]["record"] = payload["team_summary"]["record"]
         coach_w, coach_l, coach_otl = self._coach_overall_record(team.coach_name)
@@ -6080,6 +6248,36 @@ def home_panel() -> dict[str, Any]:
 def set_draft_need(payload: DraftNeedSelection) -> dict[str, Any]:
     with service._lock:
         return service.set_draft_focus(team_name=payload.team_name, focus=payload.focus)
+
+
+@app.get("/api/draft/state")
+def draft_state(team: str | None = None) -> dict[str, Any]:
+    with service._lock:
+        return service.draft_state(team_name=team)
+
+
+@app.get("/api/draft/class")
+def draft_class(team: str | None = None) -> dict[str, Any]:
+    with service._lock:
+        return service.draft_class(team_name=team)
+
+
+@app.post("/api/draft/board")
+def draft_board(payload: DraftBoardSelection) -> dict[str, Any]:
+    with service._lock:
+        return service.set_draft_board(team_name=payload.team_name, prospect_ids=payload.prospect_ids)
+
+
+@app.post("/api/draft/pick")
+def draft_pick(payload: DraftPickSelection) -> dict[str, Any]:
+    with service._lock:
+        return service.make_draft_pick(team_name=payload.team_name, prospect_id=payload.prospect_id)
+
+
+@app.post("/api/draft/sim-to-user-pick")
+def draft_sim_to_user_pick(payload: DraftAdvanceSelection) -> dict[str, Any]:
+    with service._lock:
+        return service.sim_draft_to_user_pick(team_name=payload.team_name)
 
 
 @app.get("/api/team-needs")

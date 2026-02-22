@@ -756,6 +756,10 @@ table.banded tbody tr.row-clickable:hover td {
   padding: 10px 12px;
 }
 
+.score-card-stack {
+  display: block;
+}
+
 .score-main {
   display: grid;
   gap: 6px;

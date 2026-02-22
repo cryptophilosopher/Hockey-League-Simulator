@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-type MainNavKey = "home" | "schedule" | "legacy" | "trade_center" | "transactions" | "contracts" | "free_agents" | "scores" | "league_news" | "team_stats" | "league_stats" | "awards" | "standings" | "league_records" | "cup_history" | "roster" | "lines" | "callups" | "minors" | "franchise" | "records" | "banners";
+type MainNavKey = "home" | "schedule" | "draft" | "legacy" | "trade_center" | "transactions" | "contracts" | "free_agents" | "scores" | "league_news" | "team_stats" | "league_stats" | "awards" | "standings" | "league_records" | "cup_history" | "roster" | "lines" | "callups" | "minors" | "franchise" | "records" | "banners";
 type StandingsTab = "standings" | "wildcard" | "playoffs";
 type NavScope = "league" | "team";
 type TransactionFilter = "all" | "trades" | "callups" | "injuries" | "signings";
@@ -286,6 +286,8 @@ type HomePanel = {
     points: number;
     pp_pct?: number;
     pk_pct?: number;
+    pp_rank?: number;
+    pk_rank?: number;
   };
   coach: {
     name: string;
@@ -465,6 +467,51 @@ type HomePanel = {
   };
 };
 
+type DraftStatePayload = {
+  season: number;
+  active: boolean;
+  rounds: number;
+  total_picks: number;
+  current_pick_index: number;
+  next_pick?: {
+    overall: number;
+    round: number;
+    team: string;
+  } | null;
+  recent_picks?: Array<{
+    overall: number;
+    round: number;
+    team: string;
+    name: string;
+    position: string;
+    country?: string;
+  }>;
+  user_board?: string[];
+  user_team?: string;
+  simulated_picks?: number;
+};
+
+type DraftClassPayload = {
+  season: number;
+  rows: Array<{
+    id: string;
+    rank: number;
+    name: string;
+    position: string;
+    age: number;
+    country?: string;
+    country_code?: string;
+    projected_quality: number;
+    eta: number;
+    risk: number;
+    available: boolean;
+    drafted_by?: string;
+    drafted_overall?: number;
+    drafted_round?: number;
+    user_board_rank?: number;
+  }>;
+};
+
 type CoachCandidate = {
   name: string;
   age?: number;
@@ -491,15 +538,15 @@ type LinesPayload = {
   assignments: Record<string, string>;
   units: Array<{
     unit: string;
-    LW: { name: string; pos: string; flag?: string; out_of_position?: boolean } | null;
-    C: { name: string; pos: string; flag?: string; out_of_position?: boolean } | null;
-    RW: { name: string; pos: string; flag?: string; out_of_position?: boolean } | null;
-    LD: { name: string; pos: string; flag?: string; out_of_position?: boolean } | null;
-    RD: { name: string; pos: string; flag?: string; out_of_position?: boolean } | null;
-    G: { name: string; pos: string; flag?: string; out_of_position?: boolean } | null;
+    LW: { name: string; pos: string; flag?: string; out_of_position?: boolean; overall?: number } | null;
+    C: { name: string; pos: string; flag?: string; out_of_position?: boolean; overall?: number } | null;
+    RW: { name: string; pos: string; flag?: string; out_of_position?: boolean; overall?: number } | null;
+    LD: { name: string; pos: string; flag?: string; out_of_position?: boolean; overall?: number } | null;
+    RD: { name: string; pos: string; flag?: string; out_of_position?: boolean; overall?: number } | null;
+    G: { name: string; pos: string; flag?: string; out_of_position?: boolean; overall?: number } | null;
   }>;
-  candidates: Array<{ name: string; pos: string; flag?: string }>;
-  extra_players?: Array<{ name: string; pos: string; flag?: string }>;
+  candidates: Array<{ name: string; pos: string; flag?: string; overall?: number }>;
+  extra_players?: Array<{ name: string; pos: string; flag?: string; overall?: number }>;
   injuries?: Array<{ name: string; pos: string; flag?: string; games_remaining: number; injury_type?: string; injury_status?: string }>;
 };
 
@@ -855,6 +902,7 @@ export default function App() {
   const [standingsTab, setStandingsTab] = useState<StandingsTab>("standings");
   const [meta, setMeta] = useState<Meta | null>(null);
   const [standingsMode, setStandingsMode] = useState<"league" | "conference" | "division">("division");
+  const [standingsDivisionFilter, setStandingsDivisionFilter] = useState<string>("all");
   const [rows, setRows] = useState<StandingRow[]>([]);
   const [groupRows, setGroupRows] = useState<Record<string, StandingRow[]>>({});
   const [wildGroups, setWildGroups] = useState<Record<string, WildCardRow[]>>({});
@@ -863,6 +911,9 @@ export default function App() {
   const [playoffs, setPlayoffs] = useState<PlayoffPayload | null>(null);
   const [franchise, setFranchise] = useState<FranchisePayload | null>(null);
   const [homePanel, setHomePanel] = useState<HomePanel | null>(null);
+  const [draftState, setDraftState] = useState<DraftStatePayload | null>(null);
+  const [draftClass, setDraftClass] = useState<DraftClassPayload | null>(null);
+  const [draftBoard, setDraftBoard] = useState<string[]>([]);
   const [scoreDay, setScoreDay] = useState(0);
   const [scoreBoard, setScoreBoard] = useState<DayBoard | null>(null);
   const [playerCareer, setPlayerCareer] = useState<PlayerCareerPayload | null>(null);
@@ -1008,6 +1059,26 @@ export default function App() {
     const list = [...(homePanel?.team_schedule ?? [])];
     return list.sort((a, b) => (a.game_day ?? 9999) - (b.game_day ?? 9999));
   }, [homePanel]);
+  const upcomingFiveGames = useMemo(() => {
+    const startDay = homePanel?.upcoming_game_day ?? 0;
+    return scheduleGames
+      .filter((g) => {
+        const status = String(g.status ?? "").toLowerCase();
+        const day = Number(g.game_day ?? 0);
+        return status !== "played" && day >= startDay;
+      })
+      .slice(0, 5);
+  }, [scheduleGames, homePanel?.upcoming_game_day]);
+  const draftAvailableRows = useMemo(
+    () => (draftClass?.rows ?? []).filter((r) => r.available),
+    [draftClass],
+  );
+  const isUserOnClock = Boolean(
+    draftState?.active
+    && draftState.next_pick
+    && draftState.user_team
+    && draftState.next_pick.team === draftState.user_team,
+  );
 
   function trendArrow(trend?: string): string {
     if (trend === "Rising") return "\u25B2";
@@ -1038,6 +1109,18 @@ export default function App() {
     const closeParen = text.indexOf(")");
     if (closeParen > 0) return text.slice(0, closeParen + 1);
     return text;
+  }
+
+  function ordinalLabel(n?: number): string {
+    const v = Number(n ?? 0);
+    if (!Number.isFinite(v) || v <= 0) return "-";
+    const mod100 = v % 100;
+    if (mod100 >= 11 && mod100 <= 13) return `${v}th`;
+    const mod10 = v % 10;
+    if (mod10 === 1) return `${v}st`;
+    if (mod10 === 2) return `${v}nd`;
+    if (mod10 === 3) return `${v}rd`;
+    return `${v}th`;
   }
 
   function formatScheduleResult(game: {
@@ -1154,6 +1237,20 @@ export default function App() {
 
   async function loadHome() {
     setHomePanel(await fetchJson<HomePanel>("/home"));
+  }
+
+  async function loadDraftState(teamName?: string) {
+    const chosen = teamName ?? meta?.user_team;
+    if (!chosen) return;
+    const payload = await fetchJson<DraftStatePayload>(`/draft/state?team=${encodeURIComponent(chosen)}`);
+    setDraftState(payload);
+    setDraftBoard(payload.user_board ?? []);
+  }
+
+  async function loadDraftClass(teamName?: string) {
+    const chosen = teamName ?? meta?.user_team;
+    if (!chosen) return;
+    setDraftClass(await fetchJson<DraftClassPayload>(`/draft/class?team=${encodeURIComponent(chosen)}`));
   }
 
   async function loadLines(teamName?: string) {
@@ -1278,6 +1375,8 @@ export default function App() {
         loadPlayoffs(),
         loadFranchise(m.user_team),
         loadHome(),
+        (mainNav === "draft" ? loadDraftState(m.user_team) : Promise.resolve()),
+        (mainNav === "draft" ? loadDraftClass(m.user_team) : Promise.resolve()),
         loadInbox(),
         loadTradeBlock(m.user_team),
         (mainNav === "league_news" ? loadLeagueNews() : Promise.resolve()),
@@ -1361,6 +1460,37 @@ export default function App() {
       body: JSON.stringify({ focus }),
     });
     await refreshAll();
+  }
+
+  async function saveDraftBoard(nextBoard: string[]) {
+    if (!meta?.user_team) return;
+    await fetchJson("/draft/board", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ team_name: meta.user_team, prospect_ids: nextBoard }),
+    });
+    setDraftBoard(nextBoard);
+    await Promise.all([loadDraftState(meta.user_team), loadDraftClass(meta.user_team)]);
+  }
+
+  async function simDraftToUserPick() {
+    if (!meta?.user_team) return;
+    await fetchJson("/draft/sim-to-user-pick", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ team_name: meta.user_team }),
+    });
+    await Promise.all([loadDraftState(meta.user_team), loadDraftClass(meta.user_team)]);
+  }
+
+  async function makeDraftPick(prospectId: string) {
+    if (!meta?.user_team) return;
+    await fetchJson("/draft/pick", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ team_name: meta.user_team, prospect_id: prospectId }),
+    });
+    await Promise.all([loadDraftState(meta.user_team), loadDraftClass(meta.user_team), loadHome(), loadRoster(meta.user_team), loadMinorLeague(meta.user_team)]);
   }
 
   async function onChangeTradePartner(partnerName: string) {
@@ -1711,6 +1841,7 @@ export default function App() {
   const teamNav: Array<[MainNavKey, string]> = [
     ["home", `Home${inboxEvents.length > 0 ? ` (${inboxEvents.length})` : ""}`],
     ["schedule", "Schedule"],
+    ["draft", "Draft"],
     ["trade_center", "Trades"],
     ["transactions", "Transactions"],
     ["contracts", "Contracts"],
@@ -1728,6 +1859,10 @@ export default function App() {
     if (key === "league_news") void loadLeagueNews();
     if (key === "team_stats") void loadLeaders("team", meta?.user_team);
     if (key === "league_stats") void loadLeaders("league");
+    if (key === "draft") {
+      void loadDraftState();
+      void loadDraftClass();
+    }
     if (key === "legacy" || key === "league_records") void loadRecords();
     if (key === "legacy") void loadBanners();
     if (key === "legacy") setLegacyTab("history");
@@ -1775,6 +1910,26 @@ export default function App() {
     setMainNav("home");
     void loadHome();
     void loadInbox();
+  }
+
+  function openLeagueStandingsFromHome() {
+    setNavScope("league");
+    setStandingsTab("standings");
+    setStandingsDivisionFilter("all");
+    setStandingsMode("division");
+    setMainNav("standings");
+    void loadStandings("division");
+    void loadWildCard();
+  }
+
+  function openMyDivisionFromHome() {
+    setNavScope("league");
+    setStandingsTab("standings");
+    setStandingsMode("division");
+    setStandingsDivisionFilter(homePanel?.team_summary?.division ?? "all");
+    setMainNav("standings");
+    void loadStandings("division");
+    void loadWildCard();
   }
 
   return (
@@ -1963,6 +2118,14 @@ export default function App() {
                     <option value="conference">Conference</option>
                     <option value="division">Division</option>
                   </select>
+                  {standingsMode === "division" ? (
+                    <select value={standingsDivisionFilter} onChange={(e) => setStandingsDivisionFilter(e.target.value)}>
+                      <option value="all">All Divisions</option>
+                      {(meta?.divisions ?? []).map((d) => (
+                        <option key={`stand-div-${d}`} value={d}>{d}</option>
+                      ))}
+                    </select>
+                  ) : null}
                 </div>
               </div>
               <p className="muted small">Clinch: X playoffs | Y division | Z conference | P best league record</p>
@@ -1970,7 +2133,9 @@ export default function App() {
                 <StandingsTable rows={rows} />
               ) : (
                 <div className="standings-scroll">
-                  {Object.entries(groupRows).map(([group, list]) => (
+                  {Object.entries(groupRows)
+                    .filter(([group]) => standingsMode !== "division" || standingsDivisionFilter === "all" || group === standingsDivisionFilter)
+                    .map(([group, list]) => (
                     <div key={group} className="standings-group">
                       <h3>{group}</h3>
                       <StandingsTable rows={list} />
@@ -3221,6 +3386,157 @@ export default function App() {
         </section>
       ) : null}
 
+      {mainNav === "draft" ? (
+        <section className="card">
+          <div className="section-head">
+            <h2>Draft Center</h2>
+            <div className="inline-controls">
+              <button onClick={() => void simDraftToUserPick()} disabled={!draftState?.active || isUserOnClock}>
+                Sim To My Pick
+              </button>
+              <button
+                onClick={() => {
+                  const nextId = draftBoard.find((id) => draftAvailableRows.some((r) => r.id === id))
+                    ?? draftAvailableRows[0]?.id;
+                  if (nextId) void makeDraftPick(nextId);
+                }}
+                disabled={!isUserOnClock || draftAvailableRows.length === 0}
+              >
+                Draft Best Available
+              </button>
+            </div>
+          </div>
+          <p className="muted">
+            Season {draftState?.season ?? meta?.season ?? "-"} | Pick {(draftState?.current_pick_index ?? 0) + 1} of {draftState?.total_picks ?? "-"}
+            {" | "}
+            {draftState?.active ? "Draft Active" : "Draft Complete"}
+            {draftState?.next_pick ? ` | On Clock: ${draftState.next_pick.team} (R${draftState.next_pick.round} #${draftState.next_pick.overall})` : ""}
+          </p>
+          <div className="split">
+            <div>
+              <h3>Prospects</h3>
+              <table className="banded">
+                <thead>
+                  <tr>
+                    <th>Rank</th>
+                    <th>Player</th>
+                    <th>Pos</th>
+                    <th>Age</th>
+                    <th>Country</th>
+                    <th>ETA</th>
+                    <th>Risk</th>
+                    <th>Status</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {((draftClass?.rows ?? []).slice(0, 80)).map((p) => {
+                    const inBoard = draftBoard.includes(p.id);
+                    return (
+                      <tr key={`draft-prospect-${p.id}`}>
+                        <td>{p.rank}</td>
+                        <td>{p.name}</td>
+                        <td>{p.position}</td>
+                        <td>{p.age}</td>
+                        <td>{p.country ?? "-"}</td>
+                        <td>{p.eta === 0 ? "NHL now" : `${p.eta}y`}</td>
+                        <td>{Number(p.risk ?? 0).toFixed(2)}</td>
+                        <td>{p.available ? "Available" : `Taken #${p.drafted_overall ?? "-"} ${p.drafted_by ?? ""}`}</td>
+                        <td>
+                          {p.available ? (
+                            <div className="inline-controls">
+                              <button
+                                onClick={() => void saveDraftBoard(inBoard ? draftBoard.filter((id) => id !== p.id) : [...draftBoard, p.id])}
+                              >
+                                {inBoard ? "Remove" : "Board"}
+                              </button>
+                              {isUserOnClock ? (
+                                <button onClick={() => void makeDraftPick(p.id)}>Draft</button>
+                              ) : null}
+                            </div>
+                          ) : (
+                            "-"
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div>
+              <h3>Your Board</h3>
+              {(draftBoard.length === 0) ? (
+                <p className="muted">No prospects on your board yet.</p>
+              ) : (
+                <div className="score-list">
+                  {draftBoard.map((pid, idx) => {
+                    const p = (draftClass?.rows ?? []).find((row) => row.id === pid);
+                    if (!p) return null;
+                    return (
+                      <div key={`board-${pid}`} className="score-card">
+                        <div>
+                          <strong>{idx + 1}. {p.name}</strong> ({p.position}) {p.available ? "" : "- Taken"}
+                        </div>
+                        <div className="inline-controls">
+                          <button onClick={() => void saveDraftBoard(draftBoard.filter((id) => id !== pid))}>Remove</button>
+                          <button
+                            onClick={() => {
+                              if (idx === 0) return;
+                              const next = [...draftBoard];
+                              const tmp = next[idx - 1];
+                              next[idx - 1] = next[idx];
+                              next[idx] = tmp;
+                              void saveDraftBoard(next);
+                            }}
+                            disabled={idx === 0}
+                          >
+                            Up
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (idx >= draftBoard.length - 1) return;
+                              const next = [...draftBoard];
+                              const tmp = next[idx + 1];
+                              next[idx + 1] = next[idx];
+                              next[idx] = tmp;
+                              void saveDraftBoard(next);
+                            }}
+                            disabled={idx >= draftBoard.length - 1}
+                          >
+                            Down
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              <h3>Recent Picks</h3>
+              <table className="banded">
+                <thead>
+                  <tr><th>Pick</th><th>Team</th><th>Player</th><th>Pos</th></tr>
+                </thead>
+                <tbody>
+                  {(draftState?.recent_picks ?? []).length === 0 ? (
+                    <tr><td colSpan={4}>No picks made yet.</td></tr>
+                  ) : (
+                    (draftState?.recent_picks ?? []).map((r) => (
+                      <tr key={`recent-pick-${r.overall}`}>
+                        <td>R{r.round} #{r.overall}</td>
+                        <td>{r.team}</td>
+                        <td>{r.name}</td>
+                        <td>{r.position}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
       {mainNav === "lines" ? (
         <section className="card">
           <h2>{linesData?.team ?? (meta?.user_team ?? "Team")} Lines</h2>
@@ -3269,7 +3585,7 @@ export default function App() {
                           className={`text-link ${item.out_of_position ? "neg" : ""}`.trim()}
                           onClick={() => linesTeam ? void openPlayerCareer(linesTeam, item.name) : undefined}
                         >
-                          {item.name} ({item.pos})
+                          {item.name} ({item.pos}) | OVR {Number(item.overall ?? 0).toFixed(2)}
                         </span>
                       );
                   }
@@ -3281,7 +3597,7 @@ export default function App() {
                       <option value="">-</option>
                       {(linesData?.candidates ?? []).map((c) => (
                         <option key={`${id}-${c.name}`} value={c.name}>
-                          {c.name} ({c.pos})
+                          {c.name} ({c.pos}) OVR {Number(c.overall ?? 0).toFixed(2)}
                         </option>
                       ))}
                     </select>
@@ -3305,13 +3621,17 @@ export default function App() {
           {(linesData?.extra_players ?? []).length > 0 ? (
             <table>
               <thead>
-                <tr><th>Player</th><th>Pos</th></tr>
+                <tr><th>Player</th><th>Pos</th><th>OVR</th><th>Action</th></tr>
               </thead>
               <tbody>
                 {(linesData?.extra_players ?? []).map((p) => (
-                  <tr key={`extra-${p.name}`} className="row-clickable" onClick={() => linesData?.team ? void openPlayerCareer(linesData.team, p.name) : undefined}>
-                    <td>{p.name}</td>
+                  <tr key={`extra-${p.name}`} className="row-clickable">
+                    <td className="text-link" onClick={() => linesData?.team ? void openPlayerCareer(linesData.team, p.name) : undefined}>{p.name}</td>
                     <td>{p.pos}</td>
+                    <td>{Number(p.overall ?? 0).toFixed(2)}</td>
+                    <td>
+                      <button onClick={() => void demoteRosterPlayer(p.name)}>Call Down</button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -3425,8 +3745,13 @@ export default function App() {
             </span>
           </h2>
           <p className="muted">
-            Record {homePanel?.team_summary?.record ?? "-"} | {homePanel?.team_summary?.division ?? "-"} Division: {homePanel?.team_summary?.division_rank ?? "-"} place | {homePanel?.team_summary?.points ?? 0} pts
-            {" | "}PP% {(homePanel?.team_summary?.pp_pct ?? 0).toFixed(3)} | PK% {(homePanel?.team_summary?.pk_pct ?? 0).toFixed(3)}
+            <span className="text-link" onClick={openLeagueStandingsFromHome}>Record {homePanel?.team_summary?.record ?? "-"}</span>
+            {" | "}
+            <span className="text-link" onClick={openMyDivisionFromHome}>{homePanel?.team_summary?.division ?? "-"} Division: {homePanel?.team_summary?.division_rank ?? "-"} place</span>
+            {" | "}
+            <span className="text-link" onClick={openLeagueStandingsFromHome}>{homePanel?.team_summary?.points ?? 0} pts</span>
+            {" | "}PP: {ordinalLabel(homePanel?.team_summary?.pp_rank)} ({((homePanel?.team_summary?.pp_pct ?? 0) * 100).toFixed(1)}%)
+            {" | "}PK: {ordinalLabel(homePanel?.team_summary?.pk_rank)} ({((homePanel?.team_summary?.pk_pct ?? 0) * 100).toFixed(1)}%)
           </p>
             </div>
             <div className="home-sentiments">
@@ -3476,13 +3801,17 @@ export default function App() {
                   const latestShownDay = homePanel.playoffs?.active
                     ? (homePanel.playoffs.latest_team_game_day ?? null)
                     : homePanel.latest_game_day;
-                  const showLatest = Boolean(latestGame && latestShownDay != null);
-                  const showUpcoming = Boolean(
-                    homePanel.upcoming_game
+                  const justPlayedRegular = Boolean(
+                    !homePanel.playoffs?.active
+                    && latestShownDay != null
+                    && latestShownDay === Math.max(0, (homePanel.day ?? 1) - 1),
+                  );
+                  const showLatest = Boolean(
+                    latestGame
                     && (
-                      latestShownDay == null
-                      || homePanel.upcoming_game_day == null
-                      || homePanel.upcoming_game_day > latestShownDay
+                      homePanel.playoffs?.active
+                        ? (latestShownDay != null)
+                        : justPlayedRegular
                     ),
                   );
                   const renderUpcomingCard = () => {
@@ -3526,18 +3855,15 @@ export default function App() {
                   };
                   if (showLatest && latestGame) {
                     return (
-                      <>
-                        <GameSummaryCard
-                          game={latestGame}
-                          teamLogos={meta?.team_logos}
-                          showTeamLabels={false}
-                          emphasizePlayoffSeries={Boolean(homePanel.playoffs?.active && homePanel.playoffs.latest_team_game)}
-                          seriesLineTop={Boolean(homePanel.playoffs?.active && homePanel.playoffs.latest_team_game)}
-                          starsTopRight={true}
-                          largeLogos={true}
-                        />
-                        {showUpcoming ? renderUpcomingCard() : null}
-                      </>
+                      <GameSummaryCard
+                        game={latestGame}
+                        teamLogos={meta?.team_logos}
+                        showTeamLabels={false}
+                        emphasizePlayoffSeries={Boolean(homePanel.playoffs?.active && homePanel.playoffs.latest_team_game)}
+                        seriesLineTop={Boolean(homePanel.playoffs?.active && homePanel.playoffs.latest_team_game)}
+                        starsTopRight={true}
+                        largeLogos={true}
+                      />
                     );
                   }
                   if (!showLatest && homePanel.upcoming_game) {
@@ -3545,6 +3871,45 @@ export default function App() {
                   }
                   return <p className="muted">No latest or upcoming game available.</p>;
                 })()}
+                <div className="score-card score-card-stack">
+                  <h3>Next 5 Upcoming Games</h3>
+                  {upcomingFiveGames.length === 0 ? (
+                    <p className="muted">No upcoming games available.</p>
+                  ) : (
+                    <table className="banded">
+                      <thead>
+                        <tr>
+                          <th>Day</th>
+                          <th>Opponent</th>
+                          <th>Type</th>
+                          <th>Record</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {upcomingFiveGames.map((g, idx) => {
+                          const userTeam = meta?.user_team ?? "";
+                          const isHome = g.home === userTeam;
+                          const opponent = isHome ? g.away : g.home;
+                          const side = isHome ? "vs" : "@";
+                          const oppRecord = standingsRecordMap.get(opponent) ?? "-";
+                          return (
+                            <tr key={`home-upcoming-${idx}-${g.game_day ?? "x"}-${g.away}-${g.home}`}>
+                              <td>{g.game_day ?? "-"}</td>
+                              <td>
+                                <div className="team-cell">
+                                  <span>{side} {opponent}</span>
+                                  {meta?.team_logos?.[opponent] ? <img className="mini-logo" src={logoUrl(meta.team_logos[opponent])} alt={opponent} /> : null}
+                                </div>
+                              </td>
+                              <td>{String(g.status ?? "scheduled").toUpperCase()}</td>
+                              <td>{oppRecord}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
               </div>
               <div>
                 <div>
